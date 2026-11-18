@@ -1,0 +1,28 @@
+{
+  "tour": 1,
+  "steps": [
+    {
+      "screenshot": "1-spawn.png"
+    },
+    {
+      "screenshot": "2-wild.png",
+      "keys": ["W"],
+      "wait_ms": 2500
+    },
+    {
+      "screenshot": "3-base.png",
+      "keys": ["S"],
+      "wait_ms": 2500
+    },
+    {
+      "screenshot": "4-wave.png",
+      "wait_ms": 1500,
+      "call": {
+        "module": "ServerScriptService.Server.WaveService",
+        "fn": "summon",
+        "arg": "now",
+        "on": "Server"
+      }
+    }
+  ]
+}
