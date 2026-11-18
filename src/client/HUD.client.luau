@@ -204,11 +204,11 @@ for i = 1, 3 do
 	pips[i] = pip
 end
 
--- Rebirth button ------------------------------------------------------------
+-- Rebirth button: a compact bottom-right card that never sits on the pad view.
 local rebirthButton = Instance.new("TextButton")
 rebirthButton.Name = "RebirthButton"
-rebirthButton.Size = UDim2.fromOffset(314, 78)
-rebirthButton.Position = UDim2.new(1, -24, 1, -92)
+rebirthButton.Size = UDim2.fromOffset(250, 56)
+rebirthButton.Position = UDim2.new(1, -22, 1, -84)
 rebirthButton.AnchorPoint = Vector2.new(1, 1)
 rebirthButton.BackgroundColor3 = Color3.fromRGB(60, 48, 26)
 rebirthButton.BackgroundTransparency = 0.05
@@ -216,8 +216,8 @@ rebirthButton.Text = ""
 rebirthButton.AutoButtonColor = true
 rebirthButton.ZIndex = 5
 rebirthButton.Parent = gui
-Util.corner(rebirthButton, 18)
-local rebirthStroke = Util.stroke(rebirthButton, GOLD, 2.5, 0.25)
+Util.corner(rebirthButton, 14)
+local rebirthStroke = Util.stroke(rebirthButton, GOLD, 2, 0.25)
 local rebirthGradient = Instance.new("UIGradient")
 rebirthGradient.Color = ColorSequence.new({
 	ColorSequenceKeypoint.new(0, Color3.fromRGB(96, 68, 24)),
@@ -228,23 +228,33 @@ rebirthGradient.Rotation = 12
 rebirthGradient.Parent = rebirthButton
 
 local rebirthTitle = Util.label({
-	Size = UDim2.new(1, -20, 0, 34),
-	Position = UDim2.fromOffset(12, 8),
+	Size = UDim2.new(1, -78, 0, 26),
+	Position = UDim2.fromOffset(12, 4),
 	Text = "REBIRTH",
 	Font = Enum.Font.GothamBlack,
 	TextColor3 = GOLD,
-	TextSize = 26,
-	TextXAlignment = Enum.TextXAlignment.Center,
+	TextSize = 19,
+	TextXAlignment = Enum.TextXAlignment.Left,
 }, rebirthButton)
 rebirthTitle.ZIndex = 6
+local rebirthLevel = Util.label({
+	Size = UDim2.fromOffset(60, 20),
+	Position = UDim2.new(1, -70, 0, 7),
+	Text = "LV 0",
+	Font = Enum.Font.GothamBold,
+	TextColor3 = Color3.fromRGB(255, 236, 180),
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Right,
+}, rebirthButton)
+rebirthLevel.ZIndex = 6
 local rebirthSub = Util.label({
-	Size = UDim2.new(1, -20, 0, 27),
-	Position = UDim2.fromOffset(12, 42),
-	Text = "COST $500  •  +25% CASH",
+	Size = UDim2.new(1, -24, 0, 16),
+	Position = UDim2.fromOffset(12, 32),
+	Text = "NEED $500 MORE",
 	Font = Enum.Font.GothamBold,
 	TextColor3 = Color3.fromRGB(236, 224, 196),
-	TextSize = 13,
-	TextXAlignment = Enum.TextXAlignment.Center,
+	TextSize = 11,
+	TextXAlignment = Enum.TextXAlignment.Left,
 }, rebirthButton)
 rebirthSub.ZIndex = 6
 
@@ -280,8 +290,8 @@ local hints = {
 
 -- Warning banner ------------------------------------------------------------
 local warning = Util.frame({
-	Size = UDim2.fromOffset(680, 78),
-	Position = UDim2.new(0.5, 0, 0, 120),
+	Size = UDim2.fromOffset(640, 72),
+	Position = UDim2.new(0.5, 0, 0, 112),
 	AnchorPoint = Vector2.new(0.5, 0),
 	BackgroundColor3 = Color3.fromRGB(74, 12, 30),
 	BackgroundTransparency = 0.06,
@@ -317,16 +327,19 @@ local warningSub = Util.label({
 }, warning)
 warningSub.ZIndex = 3
 
--- Toasts --------------------------------------------------------------------
+-- Toasts: bottom-left stack that grows upward, deliberately far away from the
+-- centred wave banner (the old mid-left stack could clip it on short screens).
 local toastHolder = Util.frame({
-	Size = UDim2.fromOffset(360, 300),
-	Position = UDim2.new(0, 22, 0.34, 0),
+	Size = UDim2.fromOffset(336, 210),
+	Position = UDim2.new(0, 20, 1, -76),
+	AnchorPoint = Vector2.new(0, 1),
 	BackgroundTransparency = 1,
 }, gui)
 toastHolder.Name = "Toasts"
 local toastLayout = Instance.new("UIListLayout")
 toastLayout.Padding = UDim.new(0, 7)
 toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
+toastLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
 toastLayout.Parent = toastHolder
 local toastCount = 0
 local liveToasts: { Frame } = {}
@@ -347,26 +360,26 @@ local function pushToast(text: string, tone: string?, duration: number?)
 	local color = toneColors[tone or "info"] or CYAN
 	toastCount += 1
 	local frame = Util.frame({
-		Size = UDim2.fromOffset(356, 58),
+		Size = UDim2.fromOffset(332, 52),
 		BackgroundColor3 = Color3.fromRGB(14, 12, 26),
 		BackgroundTransparency = 0.12,
 		LayoutOrder = toastCount,
 	}, toastHolder)
-	Util.corner(frame, 11)
+	Util.corner(frame, 10)
 	local accent = Util.frame({
-		Size = UDim2.fromOffset(5, 44),
+		Size = UDim2.fromOffset(5, 38),
 		Position = UDim2.fromOffset(3, 7),
 		BackgroundColor3 = color,
 	}, frame)
 	Util.corner(accent, 3)
 	Util.stroke(frame, color, 1.2, 0.7)
 	local label = Util.label({
-		Size = UDim2.new(1, -24, 1, -8),
-		Position = UDim2.fromOffset(16, 4),
+		Size = UDim2.new(1, -22, 1, -6),
+		Position = UDim2.fromOffset(14, 3),
 		Text = text,
 		Font = Enum.Font.GothamBold,
 		TextColor3 = Color3.fromRGB(248, 245, 255),
-		TextSize = 14,
+		TextSize = 13,
 		TextWrapped = true,
 		TextYAlignment = Enum.TextYAlignment.Center,
 	}, frame)
@@ -378,7 +391,7 @@ local function pushToast(text: string, tone: string?, duration: number?)
 	TweenService:Create(label, TweenInfo.new(0.22), { TextTransparency = 0 }):Play()
 
 	table.insert(liveToasts, frame)
-	while #liveToasts > 4 do
+	while #liveToasts > 3 do
 		local old = table.remove(liveToasts, 1)
 		if old and old.Parent then
 			old:Destroy()
@@ -480,19 +493,21 @@ local function updateStats()
 		lastMultiplier = multiplier
 	end
 	multLabel.Text = string.format("x%.2f", multiplier)
-	rebirthSub.Text = string.format("LEVEL %d  •  COST $%d", rebirths, Config.REBIRTH_COST)
+	rebirthLevel.Text = "LV " .. tostring(rebirths)
 
 	local canRebirth = cashValue >= Config.REBIRTH_COST
 	if canRebirth then
 		rebirthStroke.Color = GOLD
 		rebirthStroke.Transparency = 0.1
 		rebirthTitle.TextColor3 = Color3.fromRGB(255, 238, 160)
-		rebirthSub.Text = string.format("READY!  +25%%  •  LEVEL %d", rebirths)
+		rebirthSub.Text = "READY! +25% CASH"
+		rebirthSub.TextColor3 = Color3.fromRGB(255, 240, 175)
 	else
 		rebirthStroke.Color = Color3.fromRGB(160, 132, 82)
 		rebirthStroke.Transparency = 0.5
 		rebirthTitle.TextColor3 = Color3.fromRGB(205, 185, 140)
-		rebirthSub.Text = string.format("NEED $%s MORE  •  LEVEL %d", Util.formatCash(Config.REBIRTH_COST - cashValue), rebirths)
+		rebirthSub.Text = string.format("NEED $%s MORE", Util.formatCash(Config.REBIRTH_COST - cashValue))
+		rebirthSub.TextColor3 = Color3.fromRGB(236, 224, 196)
 	end
 end
 
@@ -559,10 +574,10 @@ local function requestRebirth()
 	if RebirthRemote then
 		RebirthRemote:FireServer()
 	end
-	local tween = TweenService:Create(rebirthButton, TweenInfo.new(0.09), { Size = UDim2.fromOffset(300, 70) })
+	local tween = TweenService:Create(rebirthButton, TweenInfo.new(0.09), { Size = UDim2.fromOffset(238, 52) })
 	tween:Play()
 	task.delay(0.1, function()
-		TweenService:Create(rebirthButton, TweenInfo.new(0.16), { Size = UDim2.fromOffset(314, 78) }):Play()
+		TweenService:Create(rebirthButton, TweenInfo.new(0.16), { Size = UDim2.fromOffset(250, 56) }):Play()
 	end)
 end
 

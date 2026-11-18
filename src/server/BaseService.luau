@@ -38,16 +38,61 @@ local function flatDisc(position: Vector3, diameter: number, thickness: number, 
 	}, parent)
 end
 
+-- A SurfaceGui board is used for the readable 3D "YOUR BASE" marker: unlike a
+-- billboard it is part of the deck's geometry and survives every screenshot.
+local function surfaceBoard(board: Part, title: string, sub: string, color: Color3, pad: any)
+	pad.markerTitles = {}
+	pad.markerSubs = {}
+	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
+		local gui = Instance.new("SurfaceGui")
+		gui.Name = "YourBaseGui"
+		gui.Face = face
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 48
+		gui.LightInfluence = 0
+		gui.MaxDistance = 500
+		gui.Parent = board
+
+		local frame = Util.frame({
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(14, 12, 26),
+			BackgroundTransparency = 0.1,
+		}, gui)
+		Util.corner(frame, 16)
+		Util.stroke(frame, color, 3, 0.08)
+		local titleLabel = makeLabel(frame, {
+			Size = UDim2.new(1, -14, 0.55, 0),
+			Position = UDim2.fromOffset(7, 3),
+			Text = title,
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = color,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		})
+		local subLabel = makeLabel(frame, {
+			Size = UDim2.new(1, -14, 0.3, 0),
+			Position = UDim2.new(0, 7, 0.58, 0),
+			Text = sub,
+			Font = Enum.Font.GothamBold,
+			TextColor3 = Color3.fromRGB(230, 226, 245),
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		})
+		table.insert(pad.markerTitles, titleLabel)
+		table.insert(pad.markerSubs, subLabel)
+	end
+end
+
 local function makeSign(pad: any)
 	local anchor = makePart({
 		Size = Vector3.new(1, 1, 1),
-		CFrame = CFrame.new(pad.center + Vector3.new(0, 13, 0)),
+		CFrame = CFrame.new(pad.center + Vector3.new(0, 16, 0)),
 		Transparency = 1,
 		CanCollide = false,
 	}, pad.folder)
 	anchor.Name = "SignAnchor"
 
-	local bb = Util.billboard(anchor, Vector2.new(390, 104), Vector3.new(0, 0, 0), 190)
+	local bb = Util.billboard(anchor, Vector2.new(330, 92), Vector3.new(0, 0, 0), 230)
 	local frame = Util.frame({
 		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Color3.fromRGB(16, 14, 28),
@@ -59,10 +104,11 @@ local function makeSign(pad: any)
 	pad.titleLabel = makeLabel(frame, {
 		Size = UDim2.new(1, -18, 0.52, 0),
 		Position = UDim2.fromOffset(9, 4),
-		Text = "OPEN BASE",
+		Text = "YOUR BASE",
 		Font = Enum.Font.GothamBlack,
 		TextColor3 = pad.baseColor,
 		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 	pad.infoLabel = makeLabel(frame, {
 		Size = UDim2.new(1, -18, 0.34, 0),
@@ -71,7 +117,38 @@ local function makeSign(pad: any)
 		Font = Enum.Font.GothamBold,
 		TextColor3 = Color3.fromRGB(225, 220, 240),
 		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
 	})
+
+	-- Physical marker mounted between the two rear pylons. "YOUR BASE" has to
+	-- read from the plaza in a plain screenshot, so it is real geometry.
+	local boardPos = pad.center - pad.towardCenter * 12 + Vector3.new(0, 11.4, 0)
+	local boardCF = CFrame.lookAt(boardPos, boardPos + pad.towardCenter)
+	local board = makePart({
+		Size = Vector3.new(21, 4.4, 0.5),
+		CFrame = boardCF,
+		Color = Color3.fromRGB(14, 12, 26),
+		Material = Enum.Material.SmoothPlastic,
+		CanCollide = false,
+		CanQuery = false,
+	}, pad.folder)
+	board.Name = "YourBaseSign"
+	for _, barInfo in ipairs({
+		{ Vector3.new(0, 2.55, 0), Vector3.new(22.2, 0.4, 0.8) },
+		{ Vector3.new(0, -2.55, 0), Vector3.new(22.2, 0.4, 0.8) },
+		{ Vector3.new(-10.9, 0, 0), Vector3.new(0.4, 5.3, 0.8) },
+		{ Vector3.new(10.9, 0, 0), Vector3.new(0.4, 5.3, 0.8) },
+	}) do
+		makePart({
+			Size = barInfo[2],
+			CFrame = boardCF * CFrame.new(barInfo[1]),
+			Color = pad.baseColor,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			CanQuery = false,
+		}, pad.folder).Name = "YourBaseTrim"
+	end
+	surfaceBoard(board, "YOUR BASE", "JOIN TO CLAIM", pad.baseColor, pad)
 end
 
 local function createPad(index: number, position: Vector3): any
@@ -99,20 +176,35 @@ local function createPad(index: number, position: Vector3): any
 	inner.Name = "PadInner"
 	inner.CanCollide = false
 
+	-- Eight display slots in a tidy ring on the deck. Every creature faces the
+	-- plaza; the marker and the light beam under each slot turn bright when a
+	-- brainrot is actually banked there.
 	local slots = {}
 	local slotParts = {}
-	for row = 0, 1 do
-		for col = 0, 3 do
-			local slotIndex = row * 4 + col + 1
-			local across = right * ((col - 1.5) * 6.2)
-			local depth = towardCenter * (row == 0 and 4.5 or -3.5)
-			local slotPosition = position + across + depth + Vector3.new(0, 1.15, 0)
-			local marker = flatDisc(slotPosition, 4.6, 0.18, baseColor, Enum.Material.Neon, folder, 0.55)
-			marker.Name = "Slot_" .. slotIndex
-			marker.CanCollide = false
-			slots[slotIndex] = CFrame.new(slotPosition + Vector3.new(0, 3.0, 0)) * CFrame.Angles(0, math.atan2(towardCenter.X, towardCenter.Z), 0)
-			table.insert(slotParts, marker)
-		end
+	local slotBeams = {}
+	local slotRadius = 9.8
+	local faceYaw = math.atan2(towardCenter.X, towardCenter.Z)
+	for slotIndex = 1, Config.MAX_BASE do
+		local a = (slotIndex - 1) / Config.MAX_BASE * math.pi * 2 + math.rad(22.5)
+		local offset = right * (math.cos(a) * slotRadius) + towardCenter * (math.sin(a) * slotRadius)
+		local markerPos = position + offset + Vector3.new(0, 0.95, 0)
+		local marker = flatDisc(markerPos, 4.6, 0.18, baseColor, Enum.Material.Neon, folder, 0.55)
+		marker.Name = "Slot_" .. slotIndex
+		marker.CanCollide = false
+		slots[slotIndex] = CFrame.new(markerPos + Vector3.new(0, 2.65, 0)) * CFrame.Angles(0, faceYaw, 0)
+		table.insert(slotParts, marker)
+		local beam = makePart({
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(3.2, 0.38, 0.38),
+			CFrame = CFrame.new(markerPos + Vector3.new(0, 1.7, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = baseColor,
+			Material = Enum.Material.Neon,
+			Transparency = 0.9,
+			CanCollide = false,
+			CanQuery = false,
+		}, folder)
+		beam.Name = "SlotBeam_" .. slotIndex
+		slotBeams[slotIndex] = beam
 	end
 
 	-- Two neon pylons at the back corners make each deck visible across the map.
@@ -149,6 +241,7 @@ local function createPad(index: number, position: Vector3): any
 		inner = inner,
 		slots = slots,
 		slotParts = slotParts,
+		slotBeams = slotBeams,
 		baseColor = baseColor,
 		towardCenter = towardCenter,
 		right = right,
@@ -216,6 +309,30 @@ function BaseService.getSlotCFrame(player: Player, slot: number): CFrame?
 	return nil
 end
 
+-- BrainrotService calls this whenever the data changes so the deck visually
+-- answers "is this slot taken?" without a second source of truth.
+function BaseService.setSlotOccupied(playerOrPad: any, slot: number, occupied: boolean)
+	local pad = playerOrPad
+	if typeof(playerOrPad) == "Instance" then
+		pad = playerPads[playerOrPad]
+	end
+	if not pad or not slot then
+		return
+	end
+	local marker = pad.slotParts[slot]
+	if marker then
+		marker.Transparency = occupied and 0.05 or 0.55
+		marker.Color = occupied and Color3.fromRGB(255, 244, 210) or pad.baseColor
+	end
+	local beam = pad.slotBeams and pad.slotBeams[slot]
+	if beam then
+		beam.Transparency = occupied and 0.32 or 0.9
+		if occupied then
+			beam.Color = pad.baseColor
+		end
+	end
+end
+
 function BaseService.refreshPad(playerOrPad: any)
 	local pad = playerOrPad
 	if typeof(playerOrPad) == "Instance" then
@@ -231,21 +348,33 @@ function BaseService.refreshPad(playerOrPad: any)
 		local income = deps.BrainrotService.getBaseIncome(owner) * deps.PlayerService.getMultiplier(owner)
 		pad.count = count
 		pad.income = income
-		pad.titleLabel.Text = string.upper(string.sub(owner.DisplayName, 1, 18)) .. "'S BASE"
-		pad.infoLabel.Text = string.format("$%s/sec  •  %d/%d", Util.formatCash(income), count, Config.MAX_BASE)
+		pad.titleLabel.Text = "YOUR BASE"
+		pad.infoLabel.Text = string.format("%s  •  $%s/sec  •  %d/%d", string.sub(owner.DisplayName, 1, 16), Util.formatCash(income), count, Config.MAX_BASE)
 		pad.stroke.Color = pad.rebirths > 0 and Color3.fromRGB(255, 212, 80) or pad.baseColor
 		pad.titleLabel.TextColor3 = pad.rebirths > 0 and Color3.fromRGB(255, 222, 110) or pad.baseColor
 		pad.inner.Color = pad.baseColor:Lerp(Color3.fromRGB(255, 255, 255), 0.25)
+		for _, label in ipairs(pad.markerTitles or {}) do
+			label.TextColor3 = pad.rebirths > 0 and Color3.fromRGB(255, 222, 110) or pad.baseColor
+		end
+		for _, label in ipairs(pad.markerSubs or {}) do
+			label.Text = string.upper(string.sub(owner.DisplayName, 1, 18))
+		end
 		owner:SetAttribute("Placed", count)
 		owner:SetAttribute("IncomePerSec", income)
 	else
 		pad.count = 0
 		pad.income = 0
-		pad.titleLabel.Text = "OPEN BASE"
-		pad.infoLabel.Text = "Join and claim it"
+		pad.titleLabel.Text = "YOUR BASE"
+		pad.infoLabel.Text = "Stand here to claim it"
 		pad.stroke.Color = Color3.fromRGB(150, 144, 170)
 		pad.titleLabel.TextColor3 = Color3.fromRGB(200, 195, 215)
 		pad.inner.Color = Color3.fromRGB(96, 90, 118)
+		for _, label in ipairs(pad.markerTitles or {}) do
+			label.TextColor3 = Color3.fromRGB(205, 200, 222)
+		end
+		for _, label in ipairs(pad.markerSubs or {}) do
+			label.Text = "JOIN TO CLAIM"
+		end
 	end
 
 	if pad.rebirths > 0 then
@@ -303,6 +432,17 @@ function BaseService.releasePlayer(player: Player)
 		local marks = pad.folder:FindFirstChild("RebirthMarks")
 		if marks then
 			marks:Destroy()
+		end
+		for slot = 1, Config.MAX_BASE do
+			local marker = pad.slotParts[slot]
+			if marker then
+				marker.Transparency = 0.55
+				marker.Color = pad.baseColor
+			end
+			local beam = pad.slotBeams and pad.slotBeams[slot]
+			if beam then
+				beam.Transparency = 0.9
+			end
 		end
 		BaseService.refreshPad(pad)
 	end

@@ -105,6 +105,11 @@ local function nameplate(model: Model, root: BasePart, kind: any, rarity: any)
 		BackgroundColor3 = rarity.color,
 	}, frame)
 	Util.corner(bead, 3)
+
+	-- A physical rarity gem floats above the model too: it reads in a
+	-- screenshot even if the billboard layer is not drawn.
+	v(model, "RarityGem", Vector3.new(0.55, 0.55, 0.55), at(0, 4.55, 0), rarity.color, Enum.Material.Neon, Enum.PartType.Ball)
+	v(model, "RarityGemRing", Vector3.new(0.16, 0.95, 0.95), at(0, 4.55, 0, 0, 0, 90), rarity.color, Enum.Material.Neon, Enum.PartType.Cylinder, 0.35)
 end
 
 -- Shape builders ------------------------------------------------------------
@@ -541,6 +546,9 @@ function BrainrotService.transferToCarried(record: any, thief: Player): boolean
 		local oldOwner = record.owner
 		if oldOwner and placed[oldOwner] then
 			removeFromList(placed[oldOwner], record)
+			if record.slot then
+				deps.BaseService.setSlotOccupied(oldOwner, record.slot, false)
+			end
 			record.slot = nil
 			record.baseCF = nil
 			updatePlayerAttributes(oldOwner)
@@ -579,7 +587,20 @@ local function recordPlace(rec: any, player: Player, slot: number, slotCF: CFram
 	rec.slot = slot
 	rec.baseCF = slotCF
 	rec.basePos = slotCF.Position
-	rec.yaw = math.atan2(-slotCF.Position.X, -slotCF.Position.Z)
+	-- Face the plaza (the pad centre is the shortest way there).
+	local pad = deps.BaseService.getPad(player)
+	local look = pad and (pad.center - slotCF.Position) or Vector3.new(-slotCF.Position.X, 0, -slotCF.Position.Z)
+	if look.Magnitude < 0.01 then
+		look = Vector3.new(0, 0, -1)
+	end
+	rec.yaw = math.atan2(look.X, look.Z)
+	-- Move the model onto its free slot immediately instead of waiting for the
+	-- animation loop: banking must show up on the pad the same frame.
+	if rec.model then
+		rec.model.Parent = brainrotFolder
+		rec.model:PivotTo(CFrame.new(slotCF.Position) * CFrame.Angles(0, rec.yaw, 0))
+	end
+	deps.BaseService.setSlotOccupied(player, slot, true)
 end
 
 function BrainrotService.placeCarried(player: Player): number
@@ -665,6 +686,10 @@ function BrainrotService.getBaseIncome(player: Player): number
 end
 
 local function sendHome(record: any)
+	-- Release the pad slot before the data forgets which one it was.
+	if record.owner and record.slot then
+		deps.BaseService.setSlotOccupied(record.owner, record.slot, false)
+	end
 	record.state = "wild"
 	record.owner = nil
 	record.slot = nil
@@ -790,14 +815,35 @@ local function pivotRecord(record: any, position: Vector3, yaw: number)
 	end
 end
 
+-- Put a banked model back on its slot. Used both by the animation loop and by
+-- a slow self-heal pass, so one bad frame can never leave an invisible base.
+local function snapPlaced(record: any)
+	if record.state ~= "placed" or not record.model or not record.baseCF then
+		return
+	end
+	if record.model.Parent ~= brainrotFolder then
+		record.model.Parent = brainrotFolder
+	end
+	record.model:PivotTo(CFrame.new(record.baseCF.Position) * CFrame.Angles(0, record.yaw or 0, 0))
+end
+
+local movementWarned = false
 local function movementLoop()
 	task.spawn(function()
 		while true do
 			local now = os.clock()
 			for _, record in ipairs(records) do
-				if record.model.Parent then
+				-- pcall per creature: a single malformed record must not stop
+				-- every other brainrot (and every banked display) from updating.
+				local ok, err = pcall(function()
+					if not record.model.Parent then
+						return
+					end
 					if record.state == "wild" then
-						if now >= record.nextTarget then
+						if not record.target then
+							record.target = randomWildPosition()
+						end
+						if now >= (record.nextTarget or 0) then
 							record.target = randomWildPosition()
 							record.nextTarget = now + math.random(4, 8)
 						end
@@ -815,7 +861,7 @@ local function movementLoop()
 						local cf = record.baseCF
 						if cf then
 							local bob = math.sin(now * 1.8 + record.phase) * 0.16
-							pivotRecord(record, cf.Position + Vector3.new(0, bob, 0), record.yaw)
+							pivotRecord(record, cf.Position + Vector3.new(0, 0.25 + bob, 0), record.yaw)
 						end
 					elseif record.state == "carried" then
 						local owner = record.owner
@@ -834,7 +880,7 @@ local function movementLoop()
 						else
 							-- The carrier vanished: drop the brainrot rather than
 							-- leaving it floating forever.
-							if carried[owner] then
+							if owner and carried[owner] then
 								removeFromList(carried[owner], record)
 							end
 							sendHome(record)
@@ -844,6 +890,10 @@ local function movementLoop()
 							end
 						end
 					end
+				end)
+				if not ok and not movementWarned then
+					movementWarned = true
+					warn("[BrainrotService] animation tick skipped a creature: " .. tostring(err))
 				end
 			end
 			task.wait(0.09)
@@ -861,6 +911,12 @@ local function incomeLoop()
 					local perSecond = 0
 					for _, rec in ipairs(list) do
 						perSecond += rec.rarity.value
+						-- Self-heal: if a model ever drifts off its slot (or loses
+						-- its parent), snap it back so the pad always mirrors the
+						-- data that is paying this income.
+						if rec.model and (rec.model.Parent ~= brainrotFolder or (rec.baseCF and (rec.model:GetPivot().Position - rec.baseCF.Position).Magnitude > 3)) then
+							pcall(snapPlaced, rec)
+						end
 					end
 					local multiplier = deps.PlayerService.getMultiplier(player)
 					local amount = perSecond * multiplier

@@ -183,56 +183,130 @@ local function buildFountain(parent: Instance, origin: Vector3)
 	coin.Name = "FountainCoin"
 end
 
-local function buildTitleSign(parent: Instance, position: Vector3)
-	local anchor = paint({
-		Size = Vector3.new(1, 1, 1),
-		CFrame = CFrame.new(position),
-		Transparency = 1,
+-- Two side-readable SurfaceGui labels: the front faces the plaza/spawn and the
+-- back face covers the reverse approach, so the sign always reads in a frame.
+local function surfaceSign(board: Part, title: string, sub: string, color: Color3)
+	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
+		local gui = Instance.new("SurfaceGui")
+		gui.Name = "SignGui"
+		gui.Face = face
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 46
+		gui.LightInfluence = 0
+		gui.MaxDistance = 900
+		gui.Parent = board
+
+		local frame = Util.frame({
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(14, 11, 26),
+			BackgroundTransparency = 0.08,
+		}, gui)
+		Util.corner(frame, 24)
+		Util.stroke(frame, color, 4, 0.06)
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(46, 26, 78)),
+			ColorSequenceKeypoint.new(0.55, Color3.fromRGB(20, 16, 36)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(64, 22, 54)),
+		})
+		gradient.Rotation = 16
+		gradient.Parent = frame
+
+		Util.label({
+			Size = UDim2.new(1, -30, 0.52, 0),
+			Position = UDim2.fromOffset(15, 8),
+			Text = title,
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = Color3.fromRGB(255, 255, 255),
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		}, frame)
+		Util.label({
+			Size = UDim2.new(1, -30, 0.24, 0),
+			Position = UDim2.new(0, 15, 0.56, 0),
+			Text = sub,
+			Font = Enum.Font.GothamBold,
+			TextColor3 = color,
+			TextScaled = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		}, frame)
+	end
+end
+
+-- A real 3D sign: dark board, neon trim on all four edges, SurfaceGui text on
+-- both faces. Primitive parts only, no asset ids.
+local function buildSignBoard(parent: Instance, position: Vector3, facing: Vector3, width: number, height: number, color: Color3, title: string, sub: string): Part
+	local safeFacing = facing
+	if safeFacing.Magnitude < 0.01 then
+		safeFacing = Vector3.new(0, 0, 1)
+	end
+	local cf = CFrame.lookAt(position, position + safeFacing.Unit)
+	local board = paint({
+		Size = Vector3.new(width, height, 0.55),
+		CFrame = cf,
+		Color = Color3.fromRGB(14, 11, 26),
+		Material = Enum.Material.SmoothPlastic,
 		CanCollide = false,
+		CanQuery = false,
 	}, parent)
-	anchor.Name = "TitleSignAnchor"
+	board.Name = "SignBoard"
+	for _, barInfo in ipairs({
+		{ Vector3.new(0, height / 2 + 0.28, 0), Vector3.new(width + 1.4, 0.5, 0.9) },
+		{ Vector3.new(0, -height / 2 - 0.28, 0), Vector3.new(width + 1.4, 0.5, 0.9) },
+		{ Vector3.new(-width / 2 - 0.28, 0, 0), Vector3.new(0.5, height + 0.7, 0.9) },
+		{ Vector3.new(width / 2 + 0.28, 0, 0), Vector3.new(0.5, height + 0.7, 0.9) },
+	}) do
+		local bar = paint({
+			Size = barInfo[2],
+			CFrame = cf * CFrame.new(barInfo[1]),
+			Color = color,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			CanQuery = false,
+		}, parent)
+		bar.Name = "SignFrame"
+	end
+	surfaceSign(board, title, sub, color)
+	return board
+end
 
-	local bb = Util.billboard(anchor, Vector2.new(820, 210), Vector3.new(0, 0, 0), 700)
-	local frame = Util.frame({
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(14, 11, 26),
-		BackgroundTransparency = 0.26,
-	}, bb)
-	Util.corner(frame, 28)
-	Util.stroke(frame, Color3.fromRGB(255, 208, 76), 4, 0.08)
-	local gradient = Instance.new("UIGradient")
-	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(46, 26, 78)),
-		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(20, 16, 36)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(64, 22, 54)),
-	})
-	gradient.Rotation = 16
-	gradient.Parent = frame
+local function buildTitleSign(parent: Instance, position: Vector3)
+	local gold = Color3.fromRGB(255, 208, 76)
+	-- Neon lift beams make the board feel mounted above the fountain instead of
+	-- pasted onto the sky.
+	for _, x in ipairs({ -27, 27 }) do
+		neonBar(Vector3.new(1.2, 20, 1.2), CFrame.new(x, position.Y - 13.5, 0), Color3.fromRGB(150, 100, 255), parent, 0.45).Name = "TitleSupport"
+	end
+	neonBar(Vector3.new(46, 0.5, 0.5), CFrame.new(0, position.Y - 7.2, 0), Color3.fromRGB(90, 230, 255), parent, 0.2).Name = "TitleGlow"
+	buildSignBoard(parent, position, Vector3.new(0, 0, 1), 50, 13, gold, "BRAINROT CASH RUSH", "GRAB  •  BANK  •  STEAL  •  REBIRTH")
+end
 
-	Util.label({
-		Size = UDim2.new(1, -36, 0.5, 0),
-		Position = UDim2.fromOffset(20, 10),
-		Text = "BRAINROT CASH RUSH",
-		Font = Enum.Font.GothamBlack,
-		TextColor3 = Color3.fromRGB(255, 255, 255),
-		TextScaled = true,
-	}, frame)
-	Util.label({
-		Size = UDim2.new(1, -36, 0.22, 0),
-		Position = UDim2.new(0, 20, 0.55, 0),
-		Text = "GRAB  •  BANK  •  STEAL  •  REBIRTH",
-		Font = Enum.Font.GothamBold,
-		TextColor3 = Color3.fromRGB(255, 208, 76),
-		TextScaled = true,
-	}, frame)
-	Util.label({
-		Size = UDim2.new(1, -36, 0.16, 0),
-		Position = UDim2.new(0, 20, 0.8, 0),
-		Text = "A neon 3D brainrot heist",
-		Font = Enum.Font.GothamMedium,
-		TextColor3 = Color3.fromRGB(188, 226, 255),
-		TextScaled = true,
-	}, frame)
+-- WILD ZONE arch at the far end of the spawn deck: two chunky posts, a neon
+-- top beam and a lit sign board facing the plaza.
+local function buildWildSign(parent: Instance, origin: Vector3)
+	local deckY = origin.Y + 1.4
+	local archZ = origin.Z - 20
+	local pink = Color3.fromRGB(255, 95, 205)
+	for _, x in ipairs({ -21, 21 }) do
+		local post = paint({
+			Size = Vector3.new(2.4, 20, 2.4),
+			CFrame = CFrame.new(origin.X + x, deckY + 10, archZ),
+			Color = Color3.fromRGB(48, 40, 72),
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		}, parent)
+		post.Name = "WildArchPost"
+		local edge = neonBar(Vector3.new(0.5, 15, 0.5), CFrame.new(origin.X + x, deckY + 10, archZ + 1.4), pink, parent)
+		edge.Name = "WildArchNeon"
+	end
+	local topBeam = neonBar(Vector3.new(45, 2.2, 2.2), CFrame.new(origin.X, deckY + 20.4, archZ), Color3.fromRGB(90, 230, 255), parent)
+	topBeam.Name = "WildArchBeam"
+	buildSignBoard(parent, Vector3.new(origin.X, deckY + 15.4, archZ), Vector3.new(0, 0, 1), 32, 8.5, pink, "WILD ZONE", "CREATURES SPAWN HERE")
+	-- Two pink floor chevrons point into the spawn deck.
+	for i = 0, 1 do
+		local chevron = neonBar(Vector3.new(10 - i * 3, 0.3, 1.2), CFrame.new(origin.X, deckY + 0.25, archZ + 4 + i * 4), pink, parent, 0.25)
+		chevron.Name = "WildChevron"
+	end
 end
 
 local function buildWildZone(parent: Instance, origin: Vector3)
@@ -277,37 +351,7 @@ local function buildWildZone(parent: Instance, origin: Vector3)
 	buildTree(wild, origin + Vector3.new(-33, 1.6, -15), Color3.fromRGB(255, 120, 200), 1.0)
 	buildTree(wild, origin + Vector3.new(34, 1.6, 14), Color3.fromRGB(110, 235, 190), 0.9)
 
-	local signPart = paint({
-		Size = Vector3.new(1, 1, 1),
-		CFrame = CFrame.new(origin + Vector3.new(0, 14, 22.6)),
-		Transparency = 1,
-		CanCollide = false,
-	}, wild)
-	local bb = Util.billboard(signPart, Vector2.new(560, 120), Vector3.new(0, 0, 0), 220)
-	local frame = Util.frame({
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.fromRGB(18, 12, 30),
-		BackgroundTransparency = 0.22,
-	}, bb)
-	Util.corner(frame, 18)
-	Util.stroke(frame, Color3.fromRGB(255, 95, 205), 3, 0.1)
-	local title = Util.label({
-		Size = UDim2.new(1, -24, 0.62, 0),
-		Position = UDim2.fromOffset(16, 4),
-		Text = "WILD ZONE",
-		Font = Enum.Font.GothamBlack,
-		TextColor3 = Color3.fromRGB(255, 120, 215),
-		TextScaled = true,
-	}, frame)
-	title.Text = "WILD ZONE"
-	Util.label({
-		Size = UDim2.new(1, -24, 0.3, 0),
-		Position = UDim2.new(0, 16, 0.62, 0),
-		Text = "Absurd creatures spawn here. Touch one to grab it.",
-		Font = Enum.Font.GothamMedium,
-		TextColor3 = Color3.fromRGB(225, 220, 245),
-		TextSize = 22,
-	}, frame)
+	buildWildSign(wild, origin)
 end
 
 local function buildPortal(parent: Instance, origin: Vector3)
@@ -436,7 +480,7 @@ function MapService.build(deps: any)
 	end
 
 	buildFountain(world, Vector3.new(0, 0, 0))
-	buildTitleSign(world, Vector3.new(0, 24, 0))
+	buildTitleSign(world, Vector3.new(0, 33, 0))
 
 	-- Paths from every base toward the plaza --------------------------------
 	for i = 0, 5 do
