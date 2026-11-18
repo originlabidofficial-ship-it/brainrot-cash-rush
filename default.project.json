@@ -1,5 +1,7 @@
 {
   "name": "brainrot-cash-rush",
+  "servePort": 34872,
+  "emitLegacyScripts": false,
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
