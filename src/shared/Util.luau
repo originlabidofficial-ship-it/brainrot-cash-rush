@@ -1,49 +1,51 @@
 --!strict
--- Util: small helpers shared by server and client. Everything here is
--- defensive: a missing RemoteEvent, player or character must never take a
--- service down mid-round.
+-- Util — the small shared toolbox used by both the server services and the
+-- client HUD. Everything in here is deliberately defensive: a missing remote,
+-- a destroyed character or a nil player must never be able to throw out of a
+-- helper and take a live round down with it.
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 
 local Util = {}
 
--- "$1.2K" style numbers, used by the HUD and by world Billboards.
+-- Numbers ------------------------------------------------------------------
+
+local CASH_STEPS = {
+	{ limit = 1e12, suffix = "T", digits = 2 },
+	{ limit = 1e9, suffix = "B", digits = 2 },
+	{ limit = 1e6, suffix = "M", digits = 2 },
+	{ limit = 1e5, suffix = "K", digits = 0 },
+	{ limit = 1e4, suffix = "K", digits = 1 },
+}
+
+-- "$1.2K"-style short cash text for the HUD and for world billboards.
 function Util.formatCash(amount: number): string
 	local n = tonumber(amount) or 0
 	if n < 0 then
 		n = 0
 	end
-	if n >= 1e12 then
-		return string.format("%.2fT", n / 1e12)
-	elseif n >= 1e9 then
-		return string.format("%.2fB", n / 1e9)
-	elseif n >= 1e6 then
-		return string.format("%.2fM", n / 1e6)
-	elseif n >= 100000 then
-		return string.format("%.0fK", n / 1000)
-	elseif n >= 10000 then
-		return string.format("%.1fK", n / 1000)
+	for _, step in ipairs(CASH_STEPS) do
+		if n >= step.limit then
+			return string.format("%." .. step.digits .. "f%s", n / step.limit, step.suffix)
+		end
 	end
 	return tostring(math.floor(n))
 end
 
+-- "12,340" with thousand separators, for exact prices in toasts.
 function Util.commaNumber(amount: number): string
-	local s = tostring(math.floor(tonumber(amount) or 0))
-	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
-	if out:sub(1, 1) == "," then
-		out = out:sub(2)
+	local text = tostring(math.floor(tonumber(amount) or 0))
+	local grouped = text:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	if grouped:sub(1, 1) == "," then
+		grouped = grouped:sub(2)
 	end
-	return out
+	return grouped
 end
 
 function Util.round(n: number, places: number?): number
-	local p = places or 0
-	local m = 10 ^ p
-	return math.floor(n * m + 0.5) / m
-end
-
-function Util.flatDistance(a: Vector3, b: Vector3): number
-	local dx = a.X - b.X
-	local dz = a.Z - b.Z
-	return math.sqrt(dx * dx + dz * dz)
+	local scale = 10 ^ (places or 0)
+	return math.floor(n * scale + 0.5) / scale
 end
 
 function Util.clamp(n: number, lo: number, hi: number): number
@@ -55,7 +57,19 @@ function Util.clamp(n: number, lo: number, hi: number): number
 	return n
 end
 
+-- Horizontal distance only: creature heights bob, so Y must not skew it.
+function Util.flatDistance(a: Vector3, b: Vector3): number
+	local dx = a.X - b.X
+	local dz = a.Z - b.Z
+	return math.sqrt(dx * dx + dz * dz)
+end
+
+-- Lists --------------------------------------------------------------------
+
 function Util.pickWeighted(list: { any }, weightOf: (any) -> number): any
+	if #list == 0 then
+		return nil
+	end
 	local total = 0
 	for _, item in ipairs(list) do
 		total += math.max(0, weightOf(item))
@@ -81,20 +95,31 @@ function Util.shuffle(list: { any }): { any }
 	return list
 end
 
--- Find the player a touching part belongs to, walking up the model tree so
--- hats and tools count too.
-function Util.playerFromHit(hit: BasePart?): Player?
-	if not hit then
-		return nil
+-- Removes every occurrence of item in place and returns how many were removed.
+function Util.removeAll(list: { any }, item: any): number
+	local removed = 0
+	for i = #list, 1, -1 do
+		if list[i] == item then
+			table.remove(list, i)
+			removed += 1
+		end
 	end
+	return removed
+end
+
+-- Worlds -------------------------------------------------------------------
+
+-- Walk a few parents up from a touched part so hats, tools and accessories
+-- still resolve to the player who owns them.
+function Util.playerFromHit(hit: BasePart?): Player?
 	local node: Instance? = hit
 	for _ = 1, 5 do
 		if not node then
 			return nil
 		end
-		local player = game:GetService("Players"):GetPlayerFromCharacter(node)
-		if player then
-			return player
+		local owner = Players:GetPlayerFromCharacter(node)
+		if owner then
+			return owner
 		end
 		node = node.Parent
 	end
@@ -105,81 +130,149 @@ function Util.cframeAt(position: Vector3, yaw: number?): CFrame
 	return CFrame.new(position) * CFrame.Angles(0, yaw or 0, 0)
 end
 
--- A part with sane defaults, all anchored; the world is static except for the
--- models the services explicitly move.
-function Util.part(props: { [string]: any }, parent: Instance?): Part
-	local p = Instance.new("Part")
-	p.Anchored = true
-	p.CanCollide = false
-	p.CanQuery = true
-	p.CanTouch = false
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.Material = Enum.Material.SmoothPlastic
-	local target = p :: any
+-- A flat disc lying on the ground. Roblox cylinders are X-aligned, so a disc
+-- is a cylinder rotated 90 degrees about Z.
+function Util.flatDisc(position: Vector3, diameter: number, thickness: number, color: Color3, material: Enum.Material, parent: Instance?, transparency: number?): Part
+	return Util.part({
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(thickness, diameter, diameter),
+		CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = color,
+		Material = material,
+		Transparency = transparency or 0,
+	}, parent)
+end
+
+-- Instances ----------------------------------------------------------------
+
+local function applyProps(instance: any, props: { [string]: any }?)
+	if not props then
+		return
+	end
 	for key, value in pairs(props) do
-		if key ~= "Parent" and key ~= "Class" then
-			target[key] = value
+		if key ~= "Parent" then
+			instance[key] = value
 		end
 	end
+end
+
+-- A part with the world's default tuning: anchored, non-colliding, no touch
+-- events unless a caller asks for them.
+function Util.part(props: { [string]: any }, parent: Instance?): Part
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = true
+	part.CanTouch = false
+	part.Massless = true
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Material = Enum.Material.SmoothPlastic
+	applyProps(part, props)
 	if parent then
-		p.Parent = parent
+		part.Parent = parent
 	end
-	return p
+	return part
 end
 
 function Util.corner(parent: Instance, radius: number): UICorner
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	c.Parent = parent
-	return c
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius)
+	corner.Parent = parent
+	return corner
 end
 
 function Util.stroke(parent: Instance, color: Color3, thickness: number?, transparency: number?): UIStroke
-	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Thickness = thickness or 1
-	s.Transparency = transparency or 0
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = parent
-	return s
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = color
+	stroke.Thickness = thickness or 1
+	stroke.Transparency = transparency or 0
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = parent
+	return stroke
 end
 
 function Util.label(props: { [string]: any }, parent: Instance): TextLabel
-	local t = Instance.new("TextLabel")
-	t.BackgroundTransparency = 1
-	t.BorderSizePixel = 0
-	t.Font = Enum.Font.GothamBold
-	t.TextColor3 = Color3.fromRGB(255, 255, 255)
-	t.TextScaled = false
-	t.RichText = false
-	t.TextXAlignment = Enum.TextXAlignment.Left
-	t.TextYAlignment = Enum.TextYAlignment.Center
-	local target = t :: any
-	for key, value in pairs(props) do
-		if key ~= "Parent" then
-			target[key] = value
-		end
-	end
-	t.Parent = parent
-	return t
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.BorderSizePixel = 0
+	label.Font = Enum.Font.GothamBold
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.TextScaled = false
+	label.RichText = false
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	applyProps(label, props)
+	label.Parent = parent
+	return label
 end
 
 function Util.frame(props: { [string]: any }, parent: Instance): Frame
-	local f = Instance.new("Frame")
-	f.BorderSizePixel = 0
-	f.BackgroundColor3 = Color3.fromRGB(20, 18, 34)
-	local target = f :: any
-	for key, value in pairs(props) do
-		if key ~= "Parent" then
-			target[key] = value
-		end
-	end
-	f.Parent = parent
-	return f
+	local frame = Instance.new("Frame")
+	frame.BorderSizePixel = 0
+	frame.BackgroundColor3 = Color3.fromRGB(20, 18, 34)
+	applyProps(frame, props)
+	frame.Parent = parent
+	return frame
 end
 
--- Remote helpers never throw into gameplay code.
+-- A rounded BillboardGui for nameplates and base signs.
+function Util.billboard(adornee: BasePart, size: Vector2, studsOffset: Vector3, maxDistance: number?): BillboardGui
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "Nameplate"
+	billboard.Adornee = adornee
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = maxDistance or 150
+	billboard.Size = UDim2.fromOffset(size.X, size.Y)
+	billboard.StudsOffset = studsOffset
+	billboard.ResetOnSpawn = false
+	billboard.Parent = adornee
+	return billboard
+end
+
+function Util.setTransparency(model: Instance, alpha: number)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Transparency = alpha
+		elseif descendant:IsA("Decal") then
+			descendant.Transparency = alpha
+		end
+	end
+end
+
+function Util.destroyAfter(instance: Instance, seconds: number)
+	task.delay(seconds, function()
+		if instance and instance.Parent then
+			instance:Destroy()
+		end
+	end)
+end
+
+function Util.tween(instance: Instance, seconds: number, goal: { [string]: any }, style: Enum.EasingStyle?, direction: Enum.EasingDirection?): Tween
+	local tween = TweenService:Create(instance, TweenInfo.new(seconds, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out), goal)
+	tween:Play()
+	return tween
+end
+
+function Util.safeWaitFor(parent: Instance, name: string, timeout: number?): Instance?
+	local found = parent:FindFirstChild(name)
+	if found then
+		return found
+	end
+	local ok, result = pcall(function()
+		return parent:WaitForChild(name, timeout or 10)
+	end)
+	if ok then
+		return result
+	end
+	return nil
+end
+
+-- Remotes ------------------------------------------------------------------
+
+-- All three of these swallow transport errors: a remote that cannot be
+-- delivered is never a reason to break gameplay logic.
 function Util.fireClient(remote: RemoteEvent?, player: Player?, payload: any)
 	if not remote or not player then
 		return
@@ -219,57 +312,25 @@ function Util.broadcastToast(remotes: any, text: string, tone: string?, duration
 	})
 end
 
--- A rounded BillboardGui used for brainrot nameplates and base signs.
-function Util.billboard(adornee: BasePart, size: Vector2, studsOffset: Vector3, maxDistance: number?): BillboardGui
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "Nameplate"
-	bb.Adornee = adornee
-	bb.AlwaysOnTop = true
-	bb.LightInfluence = 0
-	bb.MaxDistance = maxDistance or 150
-	bb.Size = UDim2.fromOffset(size.X, size.Y)
-	bb.StudsOffset = studsOffset
-	bb.ResetOnSpawn = false
-	bb.Parent = adornee
-	return bb
-end
-
-function Util.setTransparency(model: Model, alpha: number)
-	for _, d in ipairs(model:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Transparency = alpha
-		elseif d:IsA("Decal") then
-			d.Transparency = alpha
-		end
+-- Tone name to colour, shared by the HUD and by world float text.
+function Util.toneColor(tone: string?, ui: any): Color3
+	local palette = ui or {
+		gold = Color3.fromRGB(255, 211, 74),
+		green = Color3.fromRGB(92, 242, 168),
+		red = Color3.fromRGB(255, 70, 100),
+		cyan = Color3.fromRGB(86, 231, 255),
+		text = Color3.fromRGB(246, 246, 255),
+	}
+	if tone == "good" then
+		return palette.green
+	elseif tone == "bad" then
+		return palette.red
+	elseif tone == "legendary" or tone == "gold" or tone == "rebirth" then
+		return palette.gold
+	elseif tone == "info" then
+		return palette.cyan
 	end
-end
-
-function Util.destroyAfter(instance: Instance, seconds: number)
-	task.delay(seconds, function()
-		if instance and instance.Parent then
-			instance:Destroy()
-		end
-	end)
-end
-
-function Util.tween(instance: Instance, seconds: number, goal: { [string]: any }, style: Enum.EasingStyle?, direction: Enum.EasingDirection?): Tween
-	local tween = game:GetService("TweenService"):Create(instance, TweenInfo.new(seconds, style or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out), goal)
-	tween:Play()
-	return tween
-end
-
-function Util.safeWaitFor(parent: Instance, name: string, timeout: number?): Instance?
-	local found = parent:FindFirstChild(name)
-	if found then
-		return found
-	end
-	local ok, result = pcall(function()
-		return parent:WaitForChild(name, timeout or 10)
-	end)
-	if ok then
-		return result
-	end
-	return nil
+	return palette.text
 end
 
 return Util

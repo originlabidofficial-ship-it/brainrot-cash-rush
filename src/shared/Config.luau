@@ -1,278 +1,144 @@
 --!strict
--- Config: one place for every number the whole game shares. Server and client
--- both read it through ReplicatedStorage.Shared.Config, so the HUD's copy of
--- the rules (carry cap, upgrade prices, quest rewards) can never drift from
--- the server's authoritative copy.
+-- Config — the single source of truth for tuning.
+--
+-- Every number a player can feel (carry cap, spawn rate, wave timing, steal
+-- cooldown, prices, rewards, map coordinates) lives here exactly once. The
+-- server requires this module through ReplicatedStorage.Shared.Config and the
+-- client does the same, so the HUD can never quote a price the server will
+-- refuse. Services are not allowed to hard-code gameplay numbers: if a value
+-- matters to the player it belongs in this file.
 
 local Config = {}
 
+local function rgb(r: number, g: number, b: number): Color3
+	return Color3.fromRGB(r, g, b)
+end
+
+-- Identity ------------------------------------------------------------------
 Config.GAME_NAME = "BRAINROT CASH RUSH"
 Config.TAGLINE = "Grab them. Bank them. Upgrade. Rebirth before the wave."
+Config.VERSION = "2.0"
 
--- Core loop tuning ---------------------------------------------------------
+-- Core loop ---------------------------------------------------------------
+-- MAX_WILD        how many wild creatures may roam at once
+-- SPAWN_INTERVAL  seconds between wild spawn attempts
+-- MAX_RECORDS     hard ceiling on live creature models (memory guard)
+-- WILD_SEED       creatures placed immediately when the server boots
 Config.MAX_WILD = 10
 Config.SPAWN_INTERVAL = 5
-Config.MAX_CARRIED = 3 -- base carry cap before the Carry Cap upgrade
-Config.MAX_BASE = 8 -- base pad slots before the Pad Slots upgrade
-Config.MAX_BASE_SLOTS = 16 -- physical slots built on every deck
-Config.WAVE_INTERVAL = 90
-Config.WAVE_WARN = 5
-Config.WAVE_DURATION = 13
-Config.STEAL_COOLDOWN = 3
-Config.GUARD_RADIUS = 19 -- base guard radius before the Guard Range upgrade
+Config.MAX_RECORDS = 40
+Config.WILD_SEED = 8
+
+Config.MAX_CARRIED = 3          -- backpack size before the Carry Cap upgrade
+Config.MAX_BASE = 8             -- usable pad slots before the Pad Slots upgrade
+Config.MAX_BASE_SLOTS = 16      -- slots physically built on every deck
+Config.MAX_UPGRADE_LEVEL = 5    -- levels per shop track
+Config.PAD_COUNT = 6            -- home decks placed around the plaza
+
+Config.INCOME_INTERVAL = 1      -- seconds between income payments
+Config.INCOME_FLOAT_EVERY = 5   -- seconds between "+$" popups over a base
+Config.SAVE_INTERVAL = 60       -- autosave cadence
+
+Config.STEAL_COOLDOWN = 3       -- seconds between successful steals per thief
+Config.STEAL_GRACE = 1.6        -- a freshly grabbed creature cannot be stolen
+Config.GUARD_RADIUS = 19        -- safe radius before the Guard Range upgrade
 Config.REBIRTH_COST = 500
-Config.REBIRTH_BONUS = 0.25
-Config.INCOME_INTERVAL = 1
-Config.SAVE_INTERVAL = 60
+Config.REBIRTH_BONUS = 0.25     -- +25% cash per rebirth, permanent
+
+-- Waves --------------------------------------------------------------------
+Config.WAVE_INTERVAL = 90       -- seconds between waves
+Config.WAVE_WARN = 5            -- warning lead time
+Config.WAVE_DURATION = 13       -- seconds the wall takes to cross the arena
+Config.WAVE_SEGMENTS = 18       -- wall segments (each ~13.8 studs wide)
+Config.WAVE_SPEED_STEP = 0.05   -- seconds between wall position updates
+
+-- Motion -------------------------------------------------------------------
+Config.MOVEMENT_TICK = 0.09     -- creature animation step
+Config.WILD_SPEED = 3.6         -- studs per second while wandering
+Config.WILD_BOB = 0.32
+Config.PLACED_BOB = 0.16
+Config.CARRY_BOB = 0.22
+Config.CARRY_HEIGHT = 4.2       -- how high carried creatures float
+Config.CARRY_STACK = 0.2        -- extra height per carried creature
+Config.MAGNET_TICK = 0.4        -- magnet scan cadence
+Config.SNAP_DISTANCE = 3        -- drift before a banked model is re-seated
+
+-- Anti-spam limits (seconds) ----------------------------------------------
+-- Applied server-side on every remote a client may fire.
+Config.LIMITS = {
+	shopBuy = 0.4,
+	questClaim = 0.8,
+	rebirth = 2.0,
+	tutorial = 0.5,
+}
+
+-- Toast durations ----------------------------------------------------------
+Config.TOAST = {
+	short = 3,
+	normal = 4,
+	long = 5,
+	welcome = 7,
+	rebirth = 6,
+	full = 2, -- cooldown between repeated "hands full" toasts
+}
 
 -- Rarities -----------------------------------------------------------------
--- value is cash per second for one placed brainrot of that rarity.
+-- value is cash per second for one banked creature of that rarity; weight is
+-- the relative spawn chance used by Util.pickWeighted.
 Config.RARITY_ORDER = { "Common", "Rare", "Epic", "Legendary", "Mythic" }
 
 Config.RARITIES = {
-	Common = {
-		name = "Common",
-		value = 1,
-		color = Color3.fromRGB(205, 220, 238),
-		glow = Color3.fromRGB(130, 180, 230),
-		weight = 44,
-	},
-	Rare = {
-		name = "Rare",
-		value = 3,
-		color = Color3.fromRGB(90, 205, 255),
-		glow = Color3.fromRGB(60, 160, 255),
-		weight = 28,
-	},
-	Epic = {
-		name = "Epic",
-		value = 8,
-		color = Color3.fromRGB(195, 115, 255),
-		glow = Color3.fromRGB(150, 60, 255),
-		weight = 17,
-	},
-	Legendary = {
-		name = "Legendary",
-		value = 25,
-		color = Color3.fromRGB(255, 195, 65),
-		glow = Color3.fromRGB(255, 150, 20),
-		weight = 8,
-	},
-	Mythic = {
-		name = "Mythic",
-		value = 90,
-		color = Color3.fromRGB(255, 85, 175),
-		glow = Color3.fromRGB(255, 20, 140),
-		weight = 3,
-	},
+	Common = { name = "Common", value = 1, color = rgb(205, 220, 238), glow = rgb(130, 180, 230), weight = 44 },
+	Rare = { name = "Rare", value = 3, color = rgb(90, 205, 255), glow = rgb(60, 160, 255), weight = 28 },
+	Epic = { name = "Epic", value = 8, color = rgb(195, 115, 255), glow = rgb(150, 60, 255), weight = 17 },
+	Legendary = { name = "Legendary", value = 25, color = rgb(255, 195, 65), glow = rgb(255, 150, 20), weight = 8 },
+	Mythic = { name = "Mythic", value = 90, color = rgb(255, 85, 175), glow = rgb(255, 20, 140), weight = 3 },
 }
 
--- The cast: 22 absurd creatures, each built from primitive parts by its own
--- builder in BrainrotService. body/accent are the paint colours; quip is the
--- one-line joke the nameplate, index and capture toast show.
-Config.BRAINROTS = {
-	{
-		id = "toiletto",
-		name = "Toiletto Tornado",
-		rarity = "Common",
-		shape = "toilet",
-		body = Color3.fromRGB(245, 248, 255),
-		accent = Color3.fromRGB(70, 200, 255),
-		quip = "Flushes at 300 RPM.",
-	},
-	{
-		id = "taco",
-		name = "Taco Tuesday Rex",
-		rarity = "Common",
-		shape = "taco",
-		body = Color3.fromRGB(246, 191, 72),
-		accent = Color3.fromRGB(90, 205, 95),
-		quip = "It is always Tuesday somewhere.",
-	},
-	{
-		id = "phone",
-		name = "Phonealicious Rex",
-		rarity = "Common",
-		shape = "phone",
-		body = Color3.fromRGB(36, 40, 58),
-		accent = Color3.fromRGB(110, 255, 180),
-		quip = "Three bars, zero signal, infinite lore.",
-	},
-	{
-		id = "duck",
-		name = "Duck Norris",
-		rarity = "Common",
-		shape = "duck",
-		body = Color3.fromRGB(255, 220, 70),
-		accent = Color3.fromRGB(255, 140, 40),
-		quip = "Quacks first. Asks questions never.",
-	},
-	{
-		id = "cheese",
-		name = "Cheddar Cheeseus",
-		rarity = "Common",
-		shape = "cheese",
-		body = Color3.fromRGB(255, 215, 70),
-		accent = Color3.fromRGB(255, 160, 35),
-		quip = "Aged four years, mostly in the sun.",
-	},
-	{
-		id = "sock",
-		name = "Sockrates",
-		rarity = "Common",
-		shape = "sock",
-		body = Color3.fromRGB(245, 130, 190),
-		accent = Color3.fromRGB(90, 230, 255),
-		quip = "Knows exactly where your other sock went.",
-	},
-	{
-		id = "fridge",
-		name = "Refrigerator Rhino",
-		rarity = "Rare",
-		shape = "fridge",
-		body = Color3.fromRGB(226, 236, 244),
-		accent = Color3.fromRGB(120, 195, 255),
-		quip = "Keeps the milk cold. Keeps grudges colder.",
-	},
-	{
-		id = "shake",
-		name = "Grimble Shake",
-		rarity = "Rare",
-		shape = "shake",
-		body = Color3.fromRGB(152, 66, 224),
-		accent = Color3.fromRGB(255, 120, 222),
-		quip = "Brain freeze, but make it evil.",
-	},
-	{
-		id = "pizza",
-		name = "Pizza the Hut",
-		rarity = "Rare",
-		shape = "pizza",
-		body = Color3.fromRGB(245, 190, 95),
-		accent = Color3.fromRGB(230, 65, 55),
-		quip = "Delivers in thirty minutes or less, emotionally.",
-	},
-	{
-		id = "worm",
-		name = "Wyrmothy",
-		rarity = "Rare",
-		shape = "worm",
-		body = Color3.fromRGB(250, 165, 195),
-		accent = Color3.fromRGB(120, 240, 170),
-		quip = "Six segments, one brain cell, all vibes.",
-	},
-	{
-		id = "donut",
-		name = "Donutello",
-		rarity = "Rare",
-		shape = "donut",
-		body = Color3.fromRGB(255, 175, 210),
-		accent = Color3.fromRGB(255, 245, 180),
-		quip = "The hole is where the rent money went.",
-	},
-	{
-		id = "shark",
-		name = "Sharkuza Sneakerino",
-		rarity = "Epic",
-		shape = "shark",
-		body = Color3.fromRGB(64, 139, 232),
-		accent = Color3.fromRGB(250, 250, 255),
-		quip = "Three sneakers, zero feet.",
-	},
-	{
-		id = "bomb",
-		name = "Bombardino Wafflini",
-		rarity = "Epic",
-		shape = "bomb",
-		body = Color3.fromRGB(60, 62, 82),
-		accent = Color3.fromRGB(255, 172, 45),
-		quip = "Explodes into breakfast.",
-	},
-	{
-		id = "crab",
-		name = "Crabby McCrabface",
-		rarity = "Epic",
-		shape = "crab",
-		body = Color3.fromRGB(242, 92, 82),
-		accent = Color3.fromRGB(255, 205, 80),
-		quip = "Pinches pockets, not claws.",
-	},
-	{
-		id = "balloon",
-		name = "Balloonicus",
-		rarity = "Epic",
-		shape = "balloon",
-		body = Color3.fromRGB(255, 105, 165),
-		accent = Color3.fromRGB(255, 240, 250),
-		quip = "One sharp idea away from retirement.",
-	},
-	{
-		id = "cactus",
-		name = "Cactus Cappuccino",
-		rarity = "Legendary",
-		shape = "cactus",
-		body = Color3.fromRGB(92, 196, 122),
-		accent = Color3.fromRGB(255, 128, 194),
-		quip = "Prickly on the outside, foamy inside.",
-	},
-	{
-		id = "ghost",
-		name = "Ghosteato",
-		rarity = "Legendary",
-		shape = "ghost",
-		body = Color3.fromRGB(225, 240, 255),
-		accent = Color3.fromRGB(130, 100, 255),
-		quip = "Boo-ries its savings in your base.",
-	},
-	{
-		id = "skull",
-		name = "Skullius Maximus",
-		rarity = "Legendary",
-		shape = "skull",
-		body = Color3.fromRGB(238, 234, 225),
-		accent = Color3.fromRGB(255, 90, 120),
-		quip = "All bone, no body, full confidence.",
-	},
-	{
-		id = "robot",
-		name = "Robo Brainrot 9000",
-		rarity = "Legendary",
-		shape = "robot",
-		body = Color3.fromRGB(160, 178, 198),
-		accent = Color3.fromRGB(80, 255, 200),
-		quip = "Beep boop, your cash is now mine.",
-	},
-	{
-		id = "banana",
-		name = "Bananita Dolphinita",
-		rarity = "Mythic",
-		shape = "banana",
-		body = Color3.fromRGB(252, 220, 74),
-		accent = Color3.fromRGB(255, 199, 32),
-		quip = "Delphine with a peel. Legally a fruit.",
-	},
-	{
-		id = "dragon",
-		name = "Dragonfruitius",
-		rarity = "Mythic",
-		shape = "dragon",
-		body = Color3.fromRGB(255, 80, 150),
-		accent = Color3.fromRGB(110, 240, 170),
-		quip = "Breathes glitter. Hoards tip jars.",
-	},
-	{
-		id = "cat",
-		name = "Cattus Supreme",
-		rarity = "Mythic",
-		shape = "cat",
-		body = Color3.fromRGB(80, 90, 130),
-		accent = Color3.fromRGB(255, 220, 90),
-		quip = "Knocks your whole base off the shelf.",
-	},
+-- The cast. Written compactly as {id, name, rarity, shape, body, accent, quip}
+-- and expanded below into the table every service reads, so adding a creature
+-- is a single row here plus one shape recipe in BrainrotService.
+local CAST = {
+	{ "toiletto", "Toiletto Tornado", "Common", "toilet", { 245, 248, 255 }, { 70, 200, 255 }, "Flushes at 300 RPM." },
+	{ "taco", "Taco Tuesday Rex", "Common", "taco", { 246, 191, 72 }, { 90, 205, 95 }, "It is always Tuesday somewhere." },
+	{ "phone", "Phonealicious Rex", "Common", "phone", { 36, 40, 58 }, { 110, 255, 180 }, "Three bars, zero signal, infinite lore." },
+	{ "duck", "Duck Norris", "Common", "duck", { 255, 220, 70 }, { 255, 140, 40 }, "Quacks first. Asks questions never." },
+	{ "cheese", "Cheddar Cheeseus", "Common", "cheese", { 255, 215, 70 }, { 255, 160, 35 }, "Aged four years, mostly in the sun." },
+	{ "sock", "Sockrates", "Common", "sock", { 245, 130, 190 }, { 90, 230, 255 }, "Knows exactly where your other sock went." },
+	{ "fridge", "Refrigerator Rhino", "Rare", "fridge", { 226, 236, 244 }, { 120, 195, 255 }, "Keeps the milk cold. Keeps grudges colder." },
+	{ "shake", "Grimble Shake", "Rare", "shake", { 152, 66, 224 }, { 255, 120, 222 }, "Brain freeze, but make it evil." },
+	{ "pizza", "Pizza the Hut", "Rare", "pizza", { 245, 190, 95 }, { 230, 65, 55 }, "Delivers in thirty minutes or less, emotionally." },
+	{ "worm", "Wyrmothy", "Rare", "worm", { 250, 165, 195 }, { 120, 240, 170 }, "Six segments, one brain cell, all vibes." },
+	{ "donut", "Donutello", "Rare", "donut", { 255, 175, 210 }, { 255, 245, 180 }, "The hole is where the rent money went." },
+	{ "shark", "Sharkuza Sneakerino", "Epic", "shark", { 64, 139, 232 }, { 250, 250, 255 }, "Three sneakers, zero feet." },
+	{ "bomb", "Bombardino Wafflini", "Epic", "bomb", { 60, 62, 82 }, { 255, 172, 45 }, "Explodes into breakfast." },
+	{ "crab", "Crabby McCrabface", "Epic", "crab", { 242, 92, 82 }, { 255, 205, 80 }, "Pinches pockets, not claws." },
+	{ "balloon", "Balloonicus", "Epic", "balloon", { 255, 105, 165 }, { 255, 240, 250 }, "One sharp idea away from retirement." },
+	{ "cactus", "Cactus Cappuccino", "Legendary", "cactus", { 92, 196, 122 }, { 255, 128, 194 }, "Prickly on the outside, foamy inside." },
+	{ "ghost", "Ghosteato", "Legendary", "ghost", { 225, 240, 255 }, { 130, 100, 255 }, "Boo-ries its savings in your base." },
+	{ "skull", "Skullius Maximus", "Legendary", "skull", { 238, 234, 225 }, { 255, 90, 120 }, "All bone, no body, full confidence." },
+	{ "robot", "Robo Brainrot 9000", "Legendary", "robot", { 160, 178, 198 }, { 80, 255, 200 }, "Beep boop, your cash is now mine." },
+	{ "banana", "Bananita Dolphinita", "Mythic", "banana", { 252, 220, 74 }, { 255, 199, 32 }, "Delphine with a peel. Legally a fruit." },
+	{ "dragon", "Dragonfruitius", "Mythic", "dragon", { 255, 80, 150 }, { 110, 240, 170 }, "Breathes glitter. Hoards tip jars." },
+	{ "cat", "Cattus Supreme", "Mythic", "cat", { 80, 90, 130 }, { 255, 220, 90 }, "Knocks your whole base off the shelf." },
 }
 
--- Six permanent upgrade tracks, five levels each. Prices are paid in cash and
--- rise every level. base + perLevel * level is the server-side effect.
+Config.BRAINROTS = {}
+for _, row in ipairs(CAST) do
+	table.insert(Config.BRAINROTS, {
+		id = row[1],
+		name = row[2],
+		rarity = row[3],
+		shape = row[4],
+		body = rgb(row[5][1], row[5][2], row[5][3]),
+		accent = rgb(row[6][1], row[6][2], row[6][3]),
+		quip = row[7],
+	})
+end
+Config.CAST_SIZE = #Config.BRAINROTS
+
+-- Shop tracks --------------------------------------------------------------
+-- Effect at level L is base + perLevel * L. prices[L] is the cost of level L.
 Config.UPGRADES = {
 	{
 		key = "CarryCap",
@@ -283,6 +149,7 @@ Config.UPGRADES = {
 		perLevel = 1,
 		prices = { 150, 400, 900, 1800, 3200 },
 		effectLabel = "CARRIED",
+		unit = "",
 	},
 	{
 		key = "PadSlots",
@@ -293,6 +160,7 @@ Config.UPGRADES = {
 		perLevel = 1.6,
 		prices = { 250, 650, 1400, 2600, 4500 },
 		effectLabel = "SLOTS",
+		unit = "",
 	},
 	{
 		key = "Income",
@@ -303,16 +171,18 @@ Config.UPGRADES = {
 		perLevel = 0.10,
 		prices = { 300, 750, 1600, 3000, 5200 },
 		effectLabel = "MULTIPLIER",
+		unit = "x",
 	},
 	{
 		key = "GuardRange",
 		name = "Guard Range",
 		icon = "🛡️",
 		blurb = "+3.5 studs of safe base radius per level",
-		base = 19,
+		base = Config.GUARD_RADIUS,
 		perLevel = 3.5,
 		prices = { 200, 500, 1100, 2200, 4000 },
 		effectLabel = "STUDS",
+		unit = " studs",
 	},
 	{
 		key = "Speed",
@@ -323,6 +193,7 @@ Config.UPGRADES = {
 		perLevel = 2,
 		prices = { 180, 450, 1000, 2000, 3600 },
 		effectLabel = "WALKSPEED",
+		unit = "",
 	},
 	{
 		key = "Magnet",
@@ -333,11 +204,13 @@ Config.UPGRADES = {
 		perLevel = 6,
 		prices = { 350, 850, 1700, 3200, 5500 },
 		effectLabel = "STUDS",
+		unit = " studs",
 	},
 }
 
--- Three of these rotate into every player's quest log. Progress is driven by
--- real server events only; rewards are paid by QuestService on a valid claim.
+-- Quests -------------------------------------------------------------------
+Config.QUEST_SLOTS = 3
+
 Config.QUESTS = {
 	{ id = "capture_5", event = "capture", goal = 5, name = "Catch 5 brainrots", reward = 120 },
 	{ id = "capture_15", event = "capture", goal = 15, name = "Catch 15 brainrots", reward = 380 },
@@ -347,6 +220,23 @@ Config.QUESTS = {
 	{ id = "steal_5", event = "steal", goal = 5, name = "Steal 5 brainrots", reward = 450 },
 	{ id = "rebirth_2", event = "rebirth", goal = 2, name = "Rebirth twice", reward = 800 },
 }
+
+-- Tutorial -----------------------------------------------------------------
+-- Order matters: the HUD shows these as a checklist and the server ticks them
+-- from real events only. `event` is what OnboardingService.progress() accepts.
+Config.TUTORIAL = {
+	{ key = "move", label = "Move around the plaza", event = "move" },
+	{ key = "grab", label = "Grab a wild brainrot", event = "grab" },
+	{ key = "bank", label = "Bank it on your base pad", event = "bank" },
+	{ key = "index", label = "Open the Brainrot Index (E)", event = "index" },
+	{ key = "rebirth", label = "Rebirth once ($500)", event = "rebirth" },
+}
+Config.TUTORIAL_MOVE_STUDS = 14 -- distance from spawn that counts as "moved"
+
+-- Leaderboard --------------------------------------------------------------
+Config.LEADERBOARD_ROWS = 10
+Config.LEADERBOARD_REFRESH = 6   -- seconds between board/HUD refreshes
+Config.LEADERBOARD_MIN_GAP = 1   -- minimum seconds between two pushes
 
 -- Map layout (studs) -------------------------------------------------------
 Config.MAP = {
@@ -365,20 +255,21 @@ Config.MAP = {
 	boardPos = Vector3.new(42, 0, 78),
 	vaultPos = Vector3.new(72, 0, -38),
 	palette = {
-		Color3.fromRGB(66, 222, 190),
-		Color3.fromRGB(255, 148, 72),
-		Color3.fromRGB(188, 120, 255),
-		Color3.fromRGB(255, 108, 170),
-		Color3.fromRGB(152, 230, 82),
-		Color3.fromRGB(88, 170, 255),
-		Color3.fromRGB(255, 220, 80),
-		Color3.fromRGB(90, 235, 140),
+		rgb(66, 222, 190),
+		rgb(255, 148, 72),
+		rgb(188, 120, 255),
+		rgb(255, 108, 170),
+		rgb(152, 230, 82),
+		rgb(88, 170, 255),
+		rgb(255, 220, 80),
+		rgb(90, 235, 140),
 	},
 }
 
--- Remote names, created once by Main.server.luau. The client only sends
--- ShopBuy, QuestClaim, TutorialAction and Rebirth; the other two are pushed
--- from the server (FX one-way effects, State and Leaderboard snapshots).
+-- Remotes ------------------------------------------------------------------
+-- Main.server.luau creates exactly these names once. The client may fire
+-- Rebirth, ShopBuy, QuestClaim and TutorialAction; FX, State and Leaderboard
+-- are server-to-client pushes only.
 Config.REMOTES = {
 	Rebirth = "Rebirth",
 	FX = "FX",
@@ -387,6 +278,20 @@ Config.REMOTES = {
 	TutorialAction = "TutorialAction",
 	State = "State",
 	Leaderboard = "Leaderboard",
+}
+
+-- UI palette shared by the HUD so text stays readable on a bright map ------
+Config.UI = {
+	panel = rgb(18, 16, 30),
+	panelLight = rgb(32, 29, 48),
+	text = rgb(246, 246, 255),
+	textDim = rgb(186, 190, 210),
+	gold = rgb(255, 211, 74),
+	cyan = rgb(86, 231, 255),
+	pink = rgb(255, 92, 202),
+	green = rgb(92, 242, 168),
+	red = rgb(255, 70, 100),
+	white = rgb(255, 255, 255),
 }
 
 return Config
