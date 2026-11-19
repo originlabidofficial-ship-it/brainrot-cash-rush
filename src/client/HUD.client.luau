@@ -90,7 +90,7 @@ local function panelFrame(width: number, height: number, z: number): Frame
 		Position = UDim2.fromScale(0.5, 0.5),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = BG,
-		BackgroundTransparency = 0.03,
+		BackgroundTransparency = 0,
 		Visible = false,
 		ZIndex = z,
 	}, root)
@@ -131,62 +131,65 @@ local function label(parent: Instance, text: string, size: UDim2, position: UDim
 end
 
 -- Top bar -------------------------------------------------------------------
+-- Every key metric lives on a fully opaque dark panel: cash, income/s,
+-- rebirths, carry, multiplier and the wave timer stay readable even when the
+-- camera points at the bright sky or the marble plaza.
 local cashBox = Util.frame({
-	Size = UDim2.fromOffset(300, 80),
+	Size = UDim2.fromOffset(320, 96),
 	Position = UDim2.fromOffset(16, 14),
 	BackgroundColor3 = BG,
-	BackgroundTransparency = 0.08,
+	BackgroundTransparency = 0,
 	ZIndex = 4,
 }, root)
 corner(cashBox, 16)
 Util.stroke(cashBox, GOLD, 2, 0.15)
-local cashTitle = label(cashBox, "CASH", UDim2.fromOffset(120, 16), UDim2.fromOffset(16, 8), GOLD, 12)
+local cashTitle = label(cashBox, "CASH", UDim2.fromOffset(130, 20), UDim2.fromOffset(14, 7), GOLD, 18)
 cashTitle.Font = Enum.Font.GothamBlack
-local rebirthLabel = label(cashBox, "REBIRTHS 0", UDim2.fromOffset(150, 16), UDim2.new(1, -166, 0, 8), PINK, 11)
+local rebirthLabel = label(cashBox, "REBIRTHS 0", UDim2.fromOffset(150, 20), UDim2.new(1, -164, 0, 7), PINK, 18)
 rebirthLabel.TextXAlignment = Enum.TextXAlignment.Right
-local cashLabel = label(cashBox, "$0", UDim2.fromOffset(270, 36), UDim2.fromOffset(16, 22), WHITE, 30, 5)
+local cashLabel = label(cashBox, "$0", UDim2.fromOffset(300, 42), UDim2.fromOffset(14, 25), WHITE, 36, 5)
 cashLabel.Font = Enum.Font.GothamBlack
-local incomeLabel = label(cashBox, "$0/sec  •  best $0", UDim2.fromOffset(270, 18), UDim2.fromOffset(16, 58), GREEN, 12)
+local incomeLabel = label(cashBox, "$0/sec  •  best $0", UDim2.fromOffset(300, 22), UDim2.fromOffset(14, 70), GREEN, 18)
 
 local statusBox = Util.frame({
-	Size = UDim2.fromOffset(470, 80),
+	Size = UDim2.fromOffset(540, 96),
 	Position = UDim2.new(0.5, 0, 0, 14),
 	AnchorPoint = Vector2.new(0.5, 0),
 	BackgroundColor3 = BG,
-	BackgroundTransparency = 0.08,
+	BackgroundTransparency = 0,
 	ZIndex = 4,
 }, root)
 corner(statusBox, 16)
 Util.stroke(statusBox, CYAN, 2, 0.2)
 local statusLabels: { [string]: TextLabel } = {}
 local statusChips = {
-	{ key = "wave", title = "BRAINROT WAVE" },
+	{ key = "wave", title = "WAVE" },
 	{ key = "carry", title = "CARRY" },
 	{ key = "pad", title = "PAD" },
 	{ key = "mult", title = "MULTIPLIER" },
 }
 for index, chip in ipairs(statusChips) do
-	local x = 8 + (index - 1) * 114
+	local x = 8 + (index - 1) * 131
 	local card = Util.frame({
-		Size = UDim2.fromOffset(106, 64),
-		Position = UDim2.fromOffset(x, 8),
+		Size = UDim2.fromOffset(125, 78),
+		Position = UDim2.fromOffset(x, 9),
 		BackgroundColor3 = PANEL_2,
-		BackgroundTransparency = 0.15,
+		BackgroundTransparency = 0,
 		ZIndex = 5,
 	}, statusBox)
 	corner(card, 10)
-	label(card, chip.title, UDim2.new(1, -8, 0, 14), UDim2.fromOffset(4, 4), DIM, 10)
-	local value = label(card, "—", UDim2.new(1, -8, 0, 28), UDim2.fromOffset(4, 18), WHITE, 20, 6)
+	label(card, chip.title, UDim2.new(1, -8, 0, 22), UDim2.fromOffset(4, 4), DIM, 18)
+	local value = label(card, "—", UDim2.new(1, -8, 0, 42), UDim2.fromOffset(4, 28), WHITE, 24, 6)
 	value.Font = Enum.Font.GothamBlack
 	statusLabels[chip.key] = value
 end
 
 local actionBox = Util.frame({
-	Size = UDim2.fromOffset(380, 80),
+	Size = UDim2.fromOffset(320, 96),
 	Position = UDim2.new(1, -16, 0, 14),
 	AnchorPoint = Vector2.new(1, 0),
 	BackgroundColor3 = BG,
-	BackgroundTransparency = 0.08,
+	BackgroundTransparency = 0,
 	ZIndex = 4,
 }, root)
 corner(actionBox, 16)
@@ -199,7 +202,7 @@ local actions = {
 	{ key = "rebirth", text = "REBIRTH\nR", color = GREEN },
 }
 for index, action in ipairs(actions) do
-	local button = makeButton(actionBox, action.text, UDim2.fromOffset(86, 62), UDim2.fromOffset(6 + (index - 1) * 92, 9), action.color)
+	local button = makeButton(actionBox, action.text, UDim2.fromOffset(74, 64), UDim2.fromOffset(4 + (index - 1) * 78, 16), action.color)
 	button.TextSize = 14
 	actionButtons[action.key] = button
 end
@@ -210,7 +213,7 @@ local questPanel = Util.frame({
 	Position = UDim2.new(0, 16, 1, -16),
 	AnchorPoint = Vector2.new(0, 1),
 	BackgroundColor3 = BG,
-	BackgroundTransparency = 0.08,
+	BackgroundTransparency = 0,
 	ZIndex = 4,
 }, root)
 corner(questPanel, 16)
@@ -225,7 +228,7 @@ for index = 1, 3 do
 		Size = UDim2.new(1, -20, 0, 64),
 		Position = UDim2.fromOffset(10, 40 + (index - 1) * 70),
 		BackgroundColor3 = PANEL_2,
-		BackgroundTransparency = 0.1,
+		BackgroundTransparency = 0,
 		ZIndex = 5,
 	}, questPanel)
 	corner(row, 10)
@@ -272,7 +275,7 @@ local hintPanel = Util.frame({
 	Position = UDim2.new(1, -16, 1, -16),
 	AnchorPoint = Vector2.new(1, 1),
 	BackgroundColor3 = BG,
-	BackgroundTransparency = 0.12,
+	BackgroundTransparency = 0,
 	ZIndex = 4,
 }, root)
 corner(hintPanel, 14)
@@ -323,7 +326,7 @@ local function pushToast(text: string, tone: string?, duration: number?)
 	local frame = Util.frame({
 		Size = UDim2.fromOffset(480, 44),
 		BackgroundColor3 = BG,
-		BackgroundTransparency = 0.08,
+		BackgroundTransparency = 0,
 		LayoutOrder = toastOrder,
 		ZIndex = 13,
 	}, toastBox)

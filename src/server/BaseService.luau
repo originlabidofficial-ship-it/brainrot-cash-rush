@@ -167,7 +167,7 @@ local function createPad(index: number, position: Vector3): any
 	glow.Name = "PadGlow"
 	glow.CanCollide = false
 
-	local deck = flatDisc(position + Vector3.new(0, 0.35, 0), Config.MAP.padRadius * 2, 0.9, Color3.fromRGB(52, 46, 74), Enum.Material.Metal, folder)
+	local deck = flatDisc(position + Vector3.new(0, 0.35, 0), Config.MAP.padRadius * 2, 0.9, Color3.fromRGB(226, 220, 210), Enum.Material.Concrete, folder)
 	deck.Name = "PadDeck"
 	deck.CanCollide = true
 	deck.CanTouch = true

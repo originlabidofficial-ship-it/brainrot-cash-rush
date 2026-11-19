@@ -5,11 +5,33 @@
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local MapService = {}
 
 local Util
 local Config
+
+-- buildStatic() is callable straight from Studio's command bar, where no
+-- dependency table has been passed yet. Load the two shared modules from the
+-- place itself in that case; if the place has not synced them, fail quietly.
+local function ensureDeps(): boolean
+	if Util and Config then
+		return true
+	end
+	local shared = ReplicatedStorage:FindFirstChild("Shared")
+	if not shared then
+		return false
+	end
+	local configModule = shared:FindFirstChild("Config")
+	local utilModule = shared:FindFirstChild("Util")
+	if not configModule or not utilModule then
+		return false
+	end
+	Config = require(configModule)
+	Util = require(utilModule)
+	return true
+end
 
 local function paint(props: { [string]: any }, parent: Instance): Part
 	return Util.part(props, parent)
@@ -783,9 +805,17 @@ local function buildHarbourPath(parent: Instance, origin: Vector3)
 	end
 end
 
-function MapService.build(deps: any)
-	Util = deps.Util
-	Config = deps.Config
+-- Builds every part of the world that never changes: ground, plaza, fountain,
+-- title, paths, boundary, wild-zone deck, portal, shop kiosk, vault, dock and
+-- all decoration. Base pads and the leaderboard board are runtime services.
+function MapService.buildStatic(deps: any?)
+	if deps then
+		Util = deps.Util
+		Config = deps.Config
+	elseif not ensureDeps() then
+		warn("[MapService] cannot build static map: Shared.Config/Util not found")
+		return nil
+	end
 
 	local existing = Workspace:FindFirstChild("World")
 	if existing then
@@ -968,16 +998,19 @@ function MapService.build(deps: any)
 	spawn.Parent = Workspace
 
 	-- Lighting / mood --------------------------------------------------------
+	-- Bright early-afternoon set so the light marble plaza reads in a still
+	-- frame instead of turning into a dark silhouette against the sky.
 	pcall(function()
 		Lighting.ClockTime = 14.3
-		Lighting.Brightness = 2.6
-		Lighting.Ambient = Color3.fromRGB(88, 94, 128)
-		Lighting.OutdoorAmbient = Color3.fromRGB(150, 164, 200)
-		Lighting.EnvironmentDiffuseScale = 0.6
-		Lighting.EnvironmentSpecularScale = 0.65
-		Lighting.FogStart = 240
-		Lighting.FogEnd = 1100
-		Lighting.FogColor = Color3.fromRGB(186, 214, 244)
+		Lighting.Brightness = 3.2
+		Lighting.ExposureCompensation = 0.3
+		Lighting.Ambient = Color3.fromRGB(126, 130, 156)
+		Lighting.OutdoorAmbient = Color3.fromRGB(170, 178, 206)
+		Lighting.EnvironmentDiffuseScale = 0.7
+		Lighting.EnvironmentSpecularScale = 0.6
+		Lighting.FogStart = 300
+		Lighting.FogEnd = 1400
+		Lighting.FogColor = Color3.fromRGB(198, 220, 244)
 	end)
 
 	local oldAtmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -985,12 +1018,12 @@ function MapService.build(deps: any)
 		oldAtmosphere:Destroy()
 	end
 	local atmosphere = Instance.new("Atmosphere")
-	atmosphere.Density = 0.3
-	atmosphere.Offset = 0.15
-	atmosphere.Color = Color3.fromRGB(228, 224, 255)
-	atmosphere.Decay = Color3.fromRGB(116, 156, 220)
-	atmosphere.Glare = 0.3
-	atmosphere.Haze = 1.4
+	atmosphere.Density = 0.16
+	atmosphere.Offset = 0.1
+	atmosphere.Color = Color3.fromRGB(232, 228, 255)
+	atmosphere.Decay = Color3.fromRGB(132, 168, 226)
+	atmosphere.Glare = 0.25
+	atmosphere.Haze = 0.55
 	atmosphere.Parent = Lighting
 
 	local bloom = Lighting:FindFirstChildOfClass("BloomEffect")
@@ -998,29 +1031,41 @@ function MapService.build(deps: any)
 		bloom = Instance.new("BloomEffect")
 		bloom.Parent = Lighting
 	end
-	bloom.Intensity = 0.85
-	bloom.Size = 26
-	bloom.Threshold = 0.92
+	bloom.Intensity = 0.55
+	bloom.Size = 24
+	bloom.Threshold = 1.0
 
 	local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
 	if not cc then
 		cc = Instance.new("ColorCorrectionEffect")
 		cc.Parent = Lighting
 	end
-	cc.Brightness = 0.02
-	cc.Contrast = 0.06
-	cc.Saturation = 0.2
-	cc.TintColor = Color3.fromRGB(255, 250, 245)
+	cc.Brightness = 0.08
+	cc.Contrast = 0.05
+	cc.Saturation = 0.15
+	cc.TintColor = Color3.fromRGB(255, 251, 247)
 
 	local sunRays = Lighting:FindFirstChildOfClass("SunRaysEffect")
 	if not sunRays then
 		sunRays = Instance.new("SunRaysEffect")
 		sunRays.Parent = Lighting
 	end
-	sunRays.Intensity = 0.14
-	sunRays.Spread = 0.5
+	sunRays.Intensity = 0.1
+	sunRays.Spread = 0.45
 
 	MapService.world = world
+	return world
+end
+
+-- Main.server calls build() once at boot. Auto-building is deliberately
+-- skipped while the game is running: the server already gets exactly one
+-- world from Main, while a command-bar require in edit mode fills the place.
+function MapService.build(deps: any)
+	return MapService.buildStatic(deps)
+end
+
+if not RunService:IsRunning() then
+	MapService.buildStatic()
 end
 
 return MapService
