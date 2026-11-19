@@ -27,7 +27,6 @@ local state = {
 }
 
 local PROFILE_PREFIX = "profile_"
-local MAX_UPGRADE_LEVEL = 5
 
 local function blankProfile(): any
 	return {
@@ -70,7 +69,7 @@ local function sanitize(raw: any): any
 	if type(raw.upgrades) == "table" then
 		for key, level in pairs(raw.upgrades) do
 			if type(key) == "string" and type(level) == "number" and isKnownUpgrade(key) then
-				profile.upgrades[key] = math.clamp(math.floor(level), 0, MAX_UPGRADE_LEVEL)
+				profile.upgrades[key] = math.clamp(math.floor(level), 0, Config.MAX_UPGRADE_LEVEL)
 			end
 		end
 	end

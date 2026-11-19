@@ -2,7 +2,8 @@
   "tour": 1,
   "steps": [
     {
-      "screenshot": "1-spawn.png"
+      "screenshot": "1-spawn.png",
+      "wait_ms": 1200
     },
     {
       "screenshot": "2-wild.png",

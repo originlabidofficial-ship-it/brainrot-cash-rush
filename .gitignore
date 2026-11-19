@@ -1,4 +1,4 @@
-# Build output and logs are not part of the entry.
+# Local build output and logs are not part of the entry.
 out/
 *.log
 game.rbxl.lock
