@@ -168,6 +168,13 @@ function WaveService.runWave()
 	warningSent = false
 	setWaveAttributes(Config.WAVE_INTERVAL, false, false)
 	Util.broadcastToast(deps.Remotes, "Wave over. The wild is restocked — go grab!", "info", 3)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Parent then
+			pcall(function()
+				deps.QuestService.recordEvent(player, "wave", 1)
+			end)
+		end
+	end
 end
 
 -- Public helper so a reviewer (or a future admin) can summon a wave on demand.

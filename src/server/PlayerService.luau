@@ -67,6 +67,30 @@ function PlayerService.addCash(player: Player, amount: number)
 	end
 	balances[player] = math.max(0, (balances[player] or 0) + amount)
 	publish(player)
+	if amount > 0 and deps.LeaderboardService then
+		pcall(function()
+			deps.LeaderboardService.recordEarn(player, amount)
+		end)
+	end
+end
+
+-- Atomic server-side debit used by the shop. Returns false and touches nothing
+-- when the player cannot afford it, so a stale client price can never overdraw.
+function PlayerService.spendCash(player: Player, amount: number): boolean
+	if not player or not player.Parent then
+		return false
+	end
+	local price = tonumber(amount) or 0
+	if price <= 0 then
+		return false
+	end
+	local cash = balances[player] or 0
+	if cash < price then
+		return false
+	end
+	balances[player] = cash - price
+	publish(player)
+	return true
 end
 
 function PlayerService.setPadsInfo(player: Player)
@@ -114,6 +138,18 @@ function PlayerService.tryRebirth(player: Player)
 		level = rebirths,
 		position = deps.BaseService.getPadCenter(player),
 	})
+	pcall(function()
+		deps.QuestService.recordEvent(player, "rebirth", 1)
+	end)
+	pcall(function()
+		deps.OnboardingService.progress(player, "rebirth")
+	end)
+	pcall(function()
+		deps.DataService.updateBest(player, deps.LeaderboardService.getTotalEarned(player), rebirths)
+	end)
+	pcall(function()
+		deps.StateService.push(player)
+	end)
 end
 
 local function onCharacterAdded(player: Player, character: Model)
@@ -121,7 +157,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	if humanoid then
 		humanoid.UseJumpPower = true
 		humanoid.JumpPower = 58
-		humanoid.WalkSpeed = 24
+		humanoid.WalkSpeed = deps.UpgradeService and deps.UpgradeService.getSpeed(player) or 16
 		humanoid.MaxHealth = 100
 		humanoid.Health = 100
 	end
@@ -180,6 +216,11 @@ local function onPlayerAdded(player: Player)
 	PlayerService.setPadsInfo(player)
 	publish(player)
 
+	-- Load persistence before the per-player services read upgrades or index.
+	pcall(function()
+		deps.DataService.load(player)
+	end)
+
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
 	end)
@@ -188,15 +229,41 @@ local function onPlayerAdded(player: Player)
 	end
 
 	pcall(function()
+		deps.UpgradeService.onPlayerAdded(player)
+	end)
+	pcall(function()
+		deps.QuestService.onPlayerAdded(player)
+	end)
+	pcall(function()
+		deps.LeaderboardService.onPlayerAdded(player)
+	end)
+	pcall(function()
+		deps.OnboardingService.onPlayerAdded(player)
+	end)
+
+	pcall(function()
 		deps.BaseService.assignPad(player)
+	end)
+
+	-- The HUD may still be binding its remotes; a short delayed snapshot is
+	-- cheaper than a client polling loop on every join.
+	task.delay(0.8, function()
+		if player.Parent then
+			pcall(function()
+				deps.StateService.push(player)
+			end)
+			pcall(function()
+				deps.LeaderboardService.pushTo(player)
+			end)
+		end
 	end)
 
 	deps.Util.toast(
 		deps.Remotes,
 		player,
-		"You spawned at the portal. Walk into wild brainrots to grab them!",
+		string.format("Welcome! You have %d backpack slots and %d pad slots. Grab wild brainrots, bank them, press E for the Index.", deps.UpgradeService.getCarryCap(player), deps.UpgradeService.getPadSlots(player)),
 		"info",
-		6
+		7
 	)
 end
 
@@ -207,6 +274,21 @@ local function onPlayerRemoving(player: Player)
 	end)
 	pcall(function()
 		deps.BaseService.releasePlayer(player)
+	end)
+	pcall(function()
+		deps.LeaderboardService.releasePlayer(player)
+	end)
+	pcall(function()
+		deps.QuestService.releasePlayer(player)
+	end)
+	pcall(function()
+		deps.OnboardingService.releasePlayer(player)
+	end)
+	pcall(function()
+		deps.UpgradeService.releasePlayer(player)
+	end)
+	pcall(function()
+		deps.DataService.save(player)
 	end)
 	balances[player] = nil
 	initialized[player] = nil

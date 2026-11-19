@@ -1,26 +1,29 @@
 --!strict
 -- Config: one place for every number the whole game shares. Server and client
 -- both read it through ReplicatedStorage.Shared.Config, so the HUD's copy of
--- the rules (carry cap, rebirth price) can never drift from the server's.
+-- the rules (carry cap, upgrade prices, quest rewards) can never drift from
+-- the server's authoritative copy.
 
 local Config = {}
 
 Config.GAME_NAME = "BRAINROT CASH RUSH"
-Config.TAGLINE = "Grab them. Bank them. Rebirth before the wave."
+Config.TAGLINE = "Grab them. Bank them. Upgrade. Rebirth before the wave."
 
 -- Core loop tuning ---------------------------------------------------------
-Config.MAX_WILD = 9
-Config.SPAWN_INTERVAL = 6
-Config.MAX_CARRIED = 3
-Config.MAX_BASE = 8
+Config.MAX_WILD = 10
+Config.SPAWN_INTERVAL = 5
+Config.MAX_CARRIED = 3 -- base carry cap before the Carry Cap upgrade
+Config.MAX_BASE = 8 -- base pad slots before the Pad Slots upgrade
+Config.MAX_BASE_SLOTS = 16 -- physical slots built on every deck
 Config.WAVE_INTERVAL = 90
 Config.WAVE_WARN = 5
 Config.WAVE_DURATION = 13
 Config.STEAL_COOLDOWN = 3
-Config.GUARD_RADIUS = 19
+Config.GUARD_RADIUS = 19 -- base guard radius before the Guard Range upgrade
 Config.REBIRTH_COST = 500
 Config.REBIRTH_BONUS = 0.25
 Config.INCOME_INTERVAL = 1
+Config.SAVE_INTERVAL = 60
 
 -- Rarities -----------------------------------------------------------------
 -- value is cash per second for one placed brainrot of that rarity.
@@ -32,7 +35,7 @@ Config.RARITIES = {
 		value = 1,
 		color = Color3.fromRGB(205, 220, 238),
 		glow = Color3.fromRGB(130, 180, 230),
-		weight = 45,
+		weight = 44,
 	},
 	Rare = {
 		name = "Rare",
@@ -60,13 +63,13 @@ Config.RARITIES = {
 		value = 90,
 		color = Color3.fromRGB(255, 85, 175),
 		glow = Color3.fromRGB(255, 20, 140),
-		weight = 2,
+		weight = 3,
 	},
 }
 
--- The cast: eight absurd little creatures, each built from primitive parts by
--- BrainrotService. body/accent are the paint colours; quip is the nameplate
--- joke line the HUD and Billboards show.
+-- The cast: 22 absurd creatures, each built from primitive parts by its own
+-- builder in BrainrotService. body/accent are the paint colours; quip is the
+-- one-line joke the nameplate, index and capture toast show.
 Config.BRAINROTS = {
 	{
 		id = "toiletto",
@@ -87,6 +90,42 @@ Config.BRAINROTS = {
 		quip = "It is always Tuesday somewhere.",
 	},
 	{
+		id = "phone",
+		name = "Phonealicious Rex",
+		rarity = "Common",
+		shape = "phone",
+		body = Color3.fromRGB(36, 40, 58),
+		accent = Color3.fromRGB(110, 255, 180),
+		quip = "Three bars, zero signal, infinite lore.",
+	},
+	{
+		id = "duck",
+		name = "Duck Norris",
+		rarity = "Common",
+		shape = "duck",
+		body = Color3.fromRGB(255, 220, 70),
+		accent = Color3.fromRGB(255, 140, 40),
+		quip = "Quacks first. Asks questions never.",
+	},
+	{
+		id = "cheese",
+		name = "Cheddar Cheeseus",
+		rarity = "Common",
+		shape = "cheese",
+		body = Color3.fromRGB(255, 215, 70),
+		accent = Color3.fromRGB(255, 160, 35),
+		quip = "Aged four years, mostly in the sun.",
+	},
+	{
+		id = "sock",
+		name = "Sockrates",
+		rarity = "Common",
+		shape = "sock",
+		body = Color3.fromRGB(245, 130, 190),
+		accent = Color3.fromRGB(90, 230, 255),
+		quip = "Knows exactly where your other sock went.",
+	},
+	{
 		id = "fridge",
 		name = "Refrigerator Rhino",
 		rarity = "Rare",
@@ -103,6 +142,33 @@ Config.BRAINROTS = {
 		body = Color3.fromRGB(152, 66, 224),
 		accent = Color3.fromRGB(255, 120, 222),
 		quip = "Brain freeze, but make it evil.",
+	},
+	{
+		id = "pizza",
+		name = "Pizza the Hut",
+		rarity = "Rare",
+		shape = "pizza",
+		body = Color3.fromRGB(245, 190, 95),
+		accent = Color3.fromRGB(230, 65, 55),
+		quip = "Delivers in thirty minutes or less, emotionally.",
+	},
+	{
+		id = "worm",
+		name = "Wyrmothy",
+		rarity = "Rare",
+		shape = "worm",
+		body = Color3.fromRGB(250, 165, 195),
+		accent = Color3.fromRGB(120, 240, 170),
+		quip = "Six segments, one brain cell, all vibes.",
+	},
+	{
+		id = "donut",
+		name = "Donutello",
+		rarity = "Rare",
+		shape = "donut",
+		body = Color3.fromRGB(255, 175, 210),
+		accent = Color3.fromRGB(255, 245, 180),
+		quip = "The hole is where the rent money went.",
 	},
 	{
 		id = "shark",
@@ -123,6 +189,24 @@ Config.BRAINROTS = {
 		quip = "Explodes into breakfast.",
 	},
 	{
+		id = "crab",
+		name = "Crabby McCrabface",
+		rarity = "Epic",
+		shape = "crab",
+		body = Color3.fromRGB(242, 92, 82),
+		accent = Color3.fromRGB(255, 205, 80),
+		quip = "Pinches pockets, not claws.",
+	},
+	{
+		id = "balloon",
+		name = "Balloonicus",
+		rarity = "Epic",
+		shape = "balloon",
+		body = Color3.fromRGB(255, 105, 165),
+		accent = Color3.fromRGB(255, 240, 250),
+		quip = "One sharp idea away from retirement.",
+	},
+	{
 		id = "cactus",
 		name = "Cactus Cappuccino",
 		rarity = "Legendary",
@@ -130,6 +214,33 @@ Config.BRAINROTS = {
 		body = Color3.fromRGB(92, 196, 122),
 		accent = Color3.fromRGB(255, 128, 194),
 		quip = "Prickly on the outside, foamy inside.",
+	},
+	{
+		id = "ghost",
+		name = "Ghosteato",
+		rarity = "Legendary",
+		shape = "ghost",
+		body = Color3.fromRGB(225, 240, 255),
+		accent = Color3.fromRGB(130, 100, 255),
+		quip = "Boo-ries its savings in your base.",
+	},
+	{
+		id = "skull",
+		name = "Skullius Maximus",
+		rarity = "Legendary",
+		shape = "skull",
+		body = Color3.fromRGB(238, 234, 225),
+		accent = Color3.fromRGB(255, 90, 120),
+		quip = "All bone, no body, full confidence.",
+	},
+	{
+		id = "robot",
+		name = "Robo Brainrot 9000",
+		rarity = "Legendary",
+		shape = "robot",
+		body = Color3.fromRGB(160, 178, 198),
+		accent = Color3.fromRGB(80, 255, 200),
+		quip = "Beep boop, your cash is now mine.",
 	},
 	{
 		id = "banana",
@@ -140,6 +251,101 @@ Config.BRAINROTS = {
 		accent = Color3.fromRGB(255, 199, 32),
 		quip = "Delphine with a peel. Legally a fruit.",
 	},
+	{
+		id = "dragon",
+		name = "Dragonfruitius",
+		rarity = "Mythic",
+		shape = "dragon",
+		body = Color3.fromRGB(255, 80, 150),
+		accent = Color3.fromRGB(110, 240, 170),
+		quip = "Breathes glitter. Hoards tip jars.",
+	},
+	{
+		id = "cat",
+		name = "Cattus Supreme",
+		rarity = "Mythic",
+		shape = "cat",
+		body = Color3.fromRGB(80, 90, 130),
+		accent = Color3.fromRGB(255, 220, 90),
+		quip = "Knocks your whole base off the shelf.",
+	},
+}
+
+-- Six permanent upgrade tracks, five levels each. Prices are paid in cash and
+-- rise every level. base + perLevel * level is the server-side effect.
+Config.UPGRADES = {
+	{
+		key = "CarryCap",
+		name = "Carry Cap",
+		icon = "🎒",
+		blurb = "+1 brainrot carried per level",
+		base = Config.MAX_CARRIED,
+		perLevel = 1,
+		prices = { 150, 400, 900, 1800, 3200 },
+		effectLabel = "CARRIED",
+	},
+	{
+		key = "PadSlots",
+		name = "Pad Slots",
+		icon = "🏠",
+		blurb = "Grow the pad from 8 to 16 display slots",
+		base = Config.MAX_BASE,
+		perLevel = 1.6,
+		prices = { 250, 650, 1400, 2600, 4500 },
+		effectLabel = "SLOTS",
+	},
+	{
+		key = "Income",
+		name = "Income",
+		icon = "💸",
+		blurb = "+10% on all banked income per level",
+		base = 1,
+		perLevel = 0.10,
+		prices = { 300, 750, 1600, 3000, 5200 },
+		effectLabel = "MULTIPLIER",
+	},
+	{
+		key = "GuardRange",
+		name = "Guard Range",
+		icon = "🛡️",
+		blurb = "+3.5 studs of safe base radius per level",
+		base = 19,
+		perLevel = 3.5,
+		prices = { 200, 500, 1100, 2200, 4000 },
+		effectLabel = "STUDS",
+	},
+	{
+		key = "Speed",
+		name = "Speed",
+		icon = "⚡",
+		blurb = "+2 walkspeed per level",
+		base = 16,
+		perLevel = 2,
+		prices = { 180, 450, 1000, 2000, 3600 },
+		effectLabel = "WALKSPEED",
+	},
+	{
+		key = "Magnet",
+		name = "Magnet",
+		icon = "🧲",
+		blurb = "Auto-collect wild brainrots in radius",
+		base = 0,
+		perLevel = 6,
+		prices = { 350, 850, 1700, 3200, 5500 },
+		effectLabel = "STUDS",
+	},
+}
+
+-- Three of these rotate into every player's quest log. Progress is driven by
+-- real server events only; rewards are paid by QuestService on a valid claim.
+Config.QUESTS = {
+	{ id = "capture_5", event = "capture", goal = 5, name = "Catch 5 brainrots", reward = 120 },
+	{ id = "capture_15", event = "capture", goal = 15, name = "Catch 15 brainrots", reward = 380 },
+	{ id = "bank_10", event = "bank", goal = 10, name = "Bank 10 brainrots", reward = 200 },
+	{ id = "bank_30", event = "bank", goal = 30, name = "Bank 30 brainrots", reward = 600 },
+	{ id = "wave_3", event = "wave", goal = 3, name = "Survive 3 waves", reward = 500 },
+	{ id = "steal_5", event = "steal", goal = 5, name = "Steal 5 brainrots", reward = 450 },
+	{ id = "rebirth_2", event = "rebirth", goal = 2, name = "Rebirth twice", reward = 800 },
 }
 
 -- Map layout (studs) -------------------------------------------------------
@@ -154,6 +360,10 @@ Config.MAP = {
 	wildTop = 3.6,
 	spawnPos = Vector3.new(0, 3, 94),
 	padRadius = 17,
+	dockCenter = Vector3.new(101, 0, -8),
+	shopPos = Vector3.new(-42, 0, 78),
+	boardPos = Vector3.new(42, 0, 78),
+	vaultPos = Vector3.new(72, 0, -38),
 	palette = {
 		Color3.fromRGB(66, 222, 190),
 		Color3.fromRGB(255, 148, 72),
@@ -166,10 +376,17 @@ Config.MAP = {
 	},
 }
 
--- Remote names, created once by Main.server.luau.
+-- Remote names, created once by Main.server.luau. The client only sends
+-- ShopBuy, QuestClaim, TutorialAction and Rebirth; the other two are pushed
+-- from the server (FX one-way effects, State and Leaderboard snapshots).
 Config.REMOTES = {
 	Rebirth = "Rebirth",
 	FX = "FX",
+	ShopBuy = "ShopBuy",
+	QuestClaim = "QuestClaim",
+	TutorialAction = "TutorialAction",
+	State = "State",
+	Leaderboard = "Leaderboard",
 }
 
 return Config

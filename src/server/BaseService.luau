@@ -176,19 +176,22 @@ local function createPad(index: number, position: Vector3): any
 	inner.Name = "PadInner"
 	inner.CanCollide = false
 
-	-- Eight display slots in a tidy ring on the deck. Every creature faces the
-	-- plaza; the marker and the light beam under each slot turn bright when a
-	-- brainrot is actually banked there.
+	-- Sixteen display slots in two tidy rings on the deck: the inner eight are
+	-- the base allocation, the outer eight unlock with the Pad Slots upgrade.
+	-- Every creature faces the plaza; the marker and beam turn bright when a
+	-- brainrot is actually banked there, and locked slots read as dark rings.
 	local slots = {}
 	local slotParts = {}
 	local slotBeams = {}
-	local slotRadius = 9.8
 	local faceYaw = math.atan2(towardCenter.X, towardCenter.Z)
-	for slotIndex = 1, Config.MAX_BASE do
-		local a = (slotIndex - 1) / Config.MAX_BASE * math.pi * 2 + math.rad(22.5)
+	for slotIndex = 1, Config.MAX_BASE_SLOTS do
+		local ring = slotIndex <= 8 and 0 or 1
+		local ringIndex = (slotIndex - 1) % 8
+		local a = ringIndex / 8 * math.pi * 2 + (ring == 1 and math.rad(22.5) or 0)
+		local slotRadius = ring == 0 and 8.6 or 12.6
 		local offset = right * (math.cos(a) * slotRadius) + towardCenter * (math.sin(a) * slotRadius)
 		local markerPos = position + offset + Vector3.new(0, 0.95, 0)
-		local marker = flatDisc(markerPos, 4.6, 0.18, baseColor, Enum.Material.Neon, folder, 0.55)
+		local marker = flatDisc(markerPos, 3.8, 0.18, baseColor, Enum.Material.Neon, folder, 0.55)
 		marker.Name = "Slot_" .. slotIndex
 		marker.CanCollide = false
 		slots[slotIndex] = CFrame.new(markerPos + Vector3.new(0, 2.65, 0)) * CFrame.Angles(0, faceYaw, 0)
@@ -249,6 +252,7 @@ local function createPad(index: number, position: Vector3): any
 		rebirths = 0,
 		income = 0,
 		count = 0,
+		occupied = {},
 	}
 
 	makeSign(pad)
@@ -319,6 +323,9 @@ function BaseService.setSlotOccupied(playerOrPad: any, slot: number, occupied: b
 	if not pad or not slot then
 		return
 	end
+	if pad.occupied then
+		pad.occupied[slot] = occupied
+	end
 	local marker = pad.slotParts[slot]
 	if marker then
 		marker.Transparency = occupied and 0.05 or 0.55
@@ -343,13 +350,21 @@ function BaseService.refreshPad(playerOrPad: any)
 	end
 
 	local owner = pad.owner
+	local capacity = Config.MAX_BASE
+	if owner and deps.UpgradeService then
+		capacity = deps.UpgradeService.getPadSlots(owner)
+	end
 	if owner and owner.Parent then
 		local count = deps.BrainrotService.getPlacedCount(owner)
-		local income = deps.BrainrotService.getBaseIncome(owner) * deps.PlayerService.getMultiplier(owner)
+		local multiplier = deps.PlayerService.getMultiplier(owner)
+		if deps.UpgradeService then
+			multiplier *= deps.UpgradeService.getIncomeMultiplier(owner)
+		end
+		local income = deps.BrainrotService.getBaseIncome(owner) * multiplier
 		pad.count = count
 		pad.income = income
 		pad.titleLabel.Text = "YOUR BASE"
-		pad.infoLabel.Text = string.format("%s  •  $%s/sec  •  %d/%d", string.sub(owner.DisplayName, 1, 16), Util.formatCash(income), count, Config.MAX_BASE)
+		pad.infoLabel.Text = string.format("%s  •  $%s/sec  •  %d/%d", string.sub(owner.DisplayName, 1, 16), Util.formatCash(income), count, capacity)
 		pad.stroke.Color = pad.rebirths > 0 and Color3.fromRGB(255, 212, 80) or pad.baseColor
 		pad.titleLabel.TextColor3 = pad.rebirths > 0 and Color3.fromRGB(255, 222, 110) or pad.baseColor
 		pad.inner.Color = pad.baseColor:Lerp(Color3.fromRGB(255, 255, 255), 0.25)
@@ -374,6 +389,29 @@ function BaseService.refreshPad(playerOrPad: any)
 		end
 		for _, label in ipairs(pad.markerSubs or {}) do
 			label.Text = "JOIN TO CLAIM"
+		end
+	end
+
+	-- Locked slots beyond the player's Pad Slots level read as dark rings so
+	-- the deck visibly grows when the upgrade is purchased.
+	local visualCap = owner and owner.Parent and capacity or Config.MAX_BASE
+	for slotIndex = 1, #pad.slotParts do
+		local marker = pad.slotParts[slotIndex]
+		local beam = pad.slotBeams and pad.slotBeams[slotIndex]
+		if slotIndex > visualCap then
+			marker.Transparency = 0.93
+			marker.Color = Color3.fromRGB(64, 60, 82)
+			if beam then
+				beam.Transparency = 1
+			end
+		else
+			local occupied = pad.occupied and pad.occupied[slotIndex]
+			marker.Transparency = occupied and 0.05 or 0.55
+			marker.Color = occupied and Color3.fromRGB(255, 244, 210) or pad.baseColor
+			if beam then
+				beam.Transparency = occupied and 0.32 or 0.9
+				beam.Color = pad.baseColor
+			end
 		end
 	end
 
@@ -433,7 +471,8 @@ function BaseService.releasePlayer(player: Player)
 		if marks then
 			marks:Destroy()
 		end
-		for slot = 1, Config.MAX_BASE do
+		pad.occupied = {}
+		for slot = 1, Config.MAX_BASE_SLOTS do
 			local marker = pad.slotParts[slot]
 			if marker then
 				marker.Transparency = 0.55
@@ -466,7 +505,11 @@ function BaseService.isPlayerOnOwnPad(player: Player): boolean
 	if not root or not root:IsA("BasePart") then
 		return false
 	end
-	return Util.flatDistance(root.Position, pad.center) <= Config.GUARD_RADIUS
+	local radius = Config.GUARD_RADIUS
+	if deps.UpgradeService then
+		radius = deps.UpgradeService.getGuardRadius(player)
+	end
+	return Util.flatDistance(root.Position, pad.center) <= radius
 end
 
 function BaseService.updateRebirthMarks(pad: any)
@@ -537,10 +580,11 @@ function BaseService.trySteal(thief: Player, record: any): boolean
 		return false
 	end
 
-	if deps.BrainrotService.getCarriedCount(thief) >= Config.MAX_CARRIED then
+	local carryLimit = deps.UpgradeService and deps.UpgradeService.getCarryCap(thief) or Config.MAX_CARRIED
+	if deps.BrainrotService.getCarriedCount(thief) >= carryLimit then
 		if now >= (stealNoticeAt[thief] or 0) then
 			stealNoticeAt[thief] = now + 2
-			Util.toast(deps.Remotes, thief, "Hands full! Bank one of your three first.", "bad", 3)
+			Util.toast(deps.Remotes, thief, string.format("Hands full (%d/%d)! Bank first.", deps.BrainrotService.getCarriedCount(thief), carryLimit), "bad", 3)
 		end
 		return false
 	end
@@ -575,6 +619,15 @@ function BaseService.trySteal(thief: Player, record: any): boolean
 		duration = 2.2,
 		text = "STEALING",
 	})
+	pcall(function()
+		deps.QuestService.recordEvent(thief, "steal", 1)
+	end)
+	pcall(function()
+		deps.StateService.push(thief)
+	end)
+	pcall(function()
+		deps.StateService.push(owner)
+	end)
 	return true
 end
 
@@ -596,10 +649,11 @@ function BaseService.tryStealCarried(thief: Player, record: any): boolean
 	if (stealReadyAt[thief] or 0) > now then
 		return false
 	end
-	if deps.BrainrotService.getCarriedCount(thief) >= Config.MAX_CARRIED then
+	local carryLimit = deps.UpgradeService and deps.UpgradeService.getCarryCap(thief) or Config.MAX_CARRIED
+	if deps.BrainrotService.getCarriedCount(thief) >= carryLimit then
 		if now >= (stealNoticeAt[thief] or 0) then
 			stealNoticeAt[thief] = now + 2
-			Util.toast(deps.Remotes, thief, "Hands full! Bank one of your three first.", "bad", 3)
+			Util.toast(deps.Remotes, thief, string.format("Hands full (%d/%d)! Bank first.", deps.BrainrotService.getCarriedCount(thief), carryLimit), "bad", 3)
 		end
 		return false
 	end
@@ -625,6 +679,15 @@ function BaseService.tryStealCarried(thief: Player, record: any): boolean
 		text = "-" .. record.kind.name,
 		tone = "bad",
 	})
+	pcall(function()
+		deps.QuestService.recordEvent(thief, "steal", 1)
+	end)
+	pcall(function()
+		deps.StateService.push(thief)
+	end)
+	pcall(function()
+		deps.StateService.push(owner)
+	end)
 	return true
 end
 

@@ -29,6 +29,11 @@ end
 local Remotes = {
 	Rebirth = remote(Config.REMOTES.Rebirth),
 	FX = remote(Config.REMOTES.FX),
+	ShopBuy = remote(Config.REMOTES.ShopBuy),
+	QuestClaim = remote(Config.REMOTES.QuestClaim),
+	TutorialAction = remote(Config.REMOTES.TutorialAction),
+	State = remote(Config.REMOTES.State),
+	Leaderboard = remote(Config.REMOTES.Leaderboard),
 }
 
 -- Services ------------------------------------------------------------------
@@ -39,22 +44,39 @@ local Services = {
 }
 
 local MapService = require(script.Parent:WaitForChild("MapService"))
+local DataService = require(script.Parent:WaitForChild("DataService"))
 local BaseService = require(script.Parent:WaitForChild("BaseService"))
 local BrainrotService = require(script.Parent:WaitForChild("BrainrotService"))
 local WaveService = require(script.Parent:WaitForChild("WaveService"))
+local UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
+local QuestService = require(script.Parent:WaitForChild("QuestService"))
+local LeaderboardService = require(script.Parent:WaitForChild("LeaderboardService"))
+local OnboardingService = require(script.Parent:WaitForChild("OnboardingService"))
+local StateService = require(script.Parent:WaitForChild("StateService"))
 local PlayerService = require(script.Parent:WaitForChild("PlayerService"))
 
 Services.MapService = MapService
+Services.DataService = DataService
 Services.BaseService = BaseService
 Services.BrainrotService = BrainrotService
 Services.WaveService = WaveService
+Services.UpgradeService = UpgradeService
+Services.QuestService = QuestService
+Services.LeaderboardService = LeaderboardService
+Services.OnboardingService = OnboardingService
+Services.StateService = StateService
 Services.PlayerService = PlayerService
 
--- The order matters: the map exists before pads, pads exist before brainrots
--- can be banked, and players join last so their pad can be assigned at once.
+-- The order matters: the map exists before pads and the leaderboard board,
+-- persistence exists before any service reads upgrades, pads exist before
+-- brainrots can be banked, and players join last so every per-player service
+-- (shop, quests, index, onboarding, leaderboard) is already listening.
 local bootOrder = {
 	{ "MapService", function()
 		MapService.build(Services)
+	end },
+	{ "DataService", function()
+		DataService.init(Services)
 	end },
 	{ "BaseService", function()
 		BaseService.init(Services)
@@ -64,6 +86,21 @@ local bootOrder = {
 	end },
 	{ "WaveService", function()
 		WaveService.init(Services)
+	end },
+	{ "UpgradeService", function()
+		UpgradeService.init(Services)
+	end },
+	{ "QuestService", function()
+		QuestService.init(Services)
+	end },
+	{ "LeaderboardService", function()
+		LeaderboardService.init(Services)
+	end },
+	{ "OnboardingService", function()
+		OnboardingService.init(Services)
+	end },
+	{ "StateService", function()
+		StateService.init(Services)
 	end },
 	{ "PlayerService", function()
 		PlayerService.init(Services)
@@ -78,4 +115,4 @@ for _, step in ipairs(bootOrder) do
 end
 
 Workspace:SetAttribute("BrainrotCashRush", true)
-print("[Brainrot Cash Rush] server ready — 8 brainrots, 6 bases, 1 wave every 90s")
+print(string.format("[Brainrot Cash Rush] server ready — %d brainrots, 6 bases, 6 upgrades, 3 quests/player, 1 wave every 90s", #Config.BRAINROTS))

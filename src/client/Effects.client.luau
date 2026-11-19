@@ -308,9 +308,35 @@ local function onEffect(payload: any)
 		shake(0.6, 0.6)
 	elseif kind == "shake" then
 		shake(payload.strength or 0.6, payload.duration or 0.4)
-	elseif kind == "levelUp" then
+	elseif kind == "levelUp" or kind == "upgrade" then
 		if position then
-			burst(position, CYAN, 14, 5)
+			ring(position, GOLD, 2, 18, 0.65)
+			burst(position, GOLD, 18, 6)
+			burst(position, CYAN, 10, 4)
+			floatText(position + Vector3.new(0, 2.5, 0), payload.text or "UPGRADE!", GOLD, 1.15)
+		end
+		flash(GOLD, 0.4, 0.4)
+	elseif kind == "quest" then
+		if position then
+			ring(position, GREEN, 2, 16, 0.7)
+			burst(position, GREEN, 20, 6)
+			floatText(position + Vector3.new(0, 2, 0), payload.text or "QUEST!", GREEN, 1.1)
+		end
+	elseif kind == "discover" then
+		if position then
+			local color = typeof(payload.color) == "Color3" and payload.color or PINK
+			ring(position, color, 1, 14, 0.6)
+			burst(position, color, 24, 7)
+			floatText(position + Vector3.new(0, 2, 0), "NEW SPECIES!", color, 1.1)
+		end
+	elseif kind == "padPulse" then
+		if position then
+			ring(position, GOLD, 4, 22, 0.9)
+			burst(position, GOLD, 12, 5)
+		end
+	elseif kind == "magnet" then
+		if position then
+			ring(position, CYAN, 1, 8, 0.4)
 		end
 	end
 end

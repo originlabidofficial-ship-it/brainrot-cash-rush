@@ -443,6 +443,346 @@ local function buildPortal(parent: Instance, origin: Vector3)
 	neonBar(Vector3.new(40, 2.4, 2.4), CFrame.new(origin + Vector3.new(0, 22, 0)), Color3.fromRGB(70, 225, 255), portal)
 end
 
+-- Shop kiosk: three walls, a counter, shelves of upgrade crates and a lit
+-- "PRESS B" board facing the spawn deck. Primitive parts only.
+local function buildShopKiosk(parent: Instance, origin: Vector3)
+	local shop = Instance.new("Folder")
+	shop.Name = "ShopKiosk"
+	shop.Parent = parent
+	local cyan = Color3.fromRGB(90, 230, 255)
+	local purple = Color3.fromRGB(190, 120, 255)
+
+	paint({
+		Size = Vector3.new(24, 1.2, 20),
+		CFrame = CFrame.new(origin + Vector3.new(0, 0.55, 0)),
+		Color = Color3.fromRGB(46, 40, 68),
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	}, shop).Name = "ShopDeck"
+	paint({
+		Size = Vector3.new(22, 8, 1.2),
+		CFrame = CFrame.new(origin + Vector3.new(0, 4.6, -8)),
+		Color = Color3.fromRGB(58, 50, 84),
+		Material = Enum.Material.Concrete,
+		CanCollide = true,
+	}, shop).Name = "ShopBackWall"
+	for _, sx in ipairs({ -10.5, 10.5 }) do
+		paint({
+			Size = Vector3.new(1.2, 8, 16),
+			CFrame = CFrame.new(origin + Vector3.new(sx, 4.6, 0)),
+			Color = Color3.fromRGB(58, 50, 84),
+			Material = Enum.Material.Concrete,
+			CanCollide = true,
+		}, shop).Name = "ShopSideWall"
+	end
+	paint({
+		Size = Vector3.new(24, 0.8, 20),
+		CFrame = CFrame.new(origin + Vector3.new(0, 8.8, 0)),
+		Color = Color3.fromRGB(32, 28, 50),
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	}, shop).Name = "ShopRoof"
+	neonBar(Vector3.new(24.2, 0.35, 0.5), CFrame.new(origin + Vector3.new(0, 9.2, 10)), cyan, shop)
+	neonBar(Vector3.new(24.2, 0.35, 0.5), CFrame.new(origin + Vector3.new(0, 9.2, -10)), purple, shop)
+	paint({
+		Size = Vector3.new(18, 2.4, 1.4),
+		CFrame = CFrame.new(origin + Vector3.new(0, 1.6, 7.5)),
+		Color = Color3.fromRGB(120, 90, 170),
+		Material = Enum.Material.SmoothPlastic,
+		CanCollide = true,
+	}, shop).Name = "ShopCounter"
+	neonBar(Vector3.new(18.4, 0.3, 0.4), CFrame.new(origin + Vector3.new(0, 2.9, 7.5)), cyan, shop)
+
+	-- Shelves of the six upgrade tracks, colour coded and easy to read.
+	for i = 1, 6 do
+		local row = math.floor((i - 1) / 3)
+		local col = (i - 1) % 3
+		local crate = paint({
+			Size = Vector3.new(4.4, 2.4, 2.4),
+			CFrame = CFrame.new(origin + Vector3.new(-7 + col * 7, 2 + row * 3, -5.5)),
+			Color = Config.MAP.palette[((i - 1) % #Config.MAP.palette) + 1],
+			Material = Enum.Material.SmoothPlastic,
+			CanCollide = true,
+		}, shop)
+		crate.Name = "UpgradeCrate"
+		neonBar(Vector3.new(4.6, 0.2, 0.2), CFrame.new(crate.Position + Vector3.new(0, 1.3, 1.3)), Color3.fromRGB(255, 255, 255), shop, 0.15)
+	end
+	local register = paint({
+		Size = Vector3.new(2.4, 1.6, 1.8),
+		CFrame = CFrame.new(origin + Vector3.new(5.5, 3.4, 7.5)),
+		Color = Color3.fromRGB(40, 44, 66),
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+	}, shop)
+	register.Name = "CashRegister"
+	neonBar(Vector3.new(1.9, 0.5, 0.1), CFrame.new(register.Position + Vector3.new(0, 0.35, 0.95)), Color3.fromRGB(90, 255, 170), shop)
+	buildSignBoard(shop, origin + Vector3.new(0, 12.4, 10.2), Vector3.new(0, 0, 1), 22, 6, cyan, "SHOP KIOSK", "PRESS B  •  SIX UPGRADES")
+	local light = Instance.new("PointLight")
+	light.Color = cyan
+	light.Brightness = 2
+	light.Range = 28
+	light.Parent = shop
+end
+
+-- The vault: a chunky metal cube with a round gold door, neon rim and a
+-- "safe banked cash" sign. Purely a landmark, but it gives the plaza a third
+-- silhouette alongside the fountain and the kiosk.
+local function buildVault(parent: Instance, origin: Vector3)
+	local vault = Instance.new("Folder")
+	vault.Name = "Vault"
+	vault.Parent = parent
+	local gold = Color3.fromRGB(255, 208, 76)
+
+	paint({
+		Size = Vector3.new(20, 1.4, 18),
+		CFrame = CFrame.new(origin + Vector3.new(0, 0.6, 0)),
+		Color = Color3.fromRGB(46, 40, 62),
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	}, vault).Name = "VaultBase"
+	paint({
+		Size = Vector3.new(16, 11, 14),
+		CFrame = CFrame.new(origin + Vector3.new(0, 6.5, 0)),
+		Color = Color3.fromRGB(52, 58, 78),
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	}, vault).Name = "VaultBody"
+	for _, info in ipairs({
+		{ Vector3.new(0, 12.2, 0), Vector3.new(17, 0.5, 15) },
+		{ Vector3.new(0, 6.5, 7.2), Vector3.new(16.5, 0.5, 0.5) },
+		{ Vector3.new(0, 6.5, -7.2), Vector3.new(16.5, 0.5, 0.5) },
+	}) do
+		neonBar(info[2], CFrame.new(origin + info[1]), gold, vault, 0.15).Name = "VaultTrim"
+	end
+	local door = paint({
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.7, 10, 10),
+		CFrame = CFrame.new(origin + Vector3.new(-8.1, 6.5, 0)),
+		Color = gold,
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+	}, vault)
+	door.Name = "VaultDoor"
+	for i = 0, 1 do
+		neonBar(Vector3.new(0.35, 1.2, 7.6), CFrame.new(origin + Vector3.new(-8.5, 3.2 + i * 6.6, 0)), Color3.fromRGB(255, 255, 255), vault, 0.35)
+	end
+	for i = 1, 5 do
+		paint({
+			Size = Vector3.new(0.8, 0.45, 0.45),
+			CFrame = CFrame.new(origin + Vector3.new(-8.6, 5.2 + i * 0.55, -2.8 + i * 0.25)),
+			Color = Color3.fromRGB(30, 30, 44),
+			Material = Enum.Material.Metal,
+			CanCollide = false,
+		}, vault).Name = "VaultBolt"
+	end
+	for i = 1, 6 do
+		local a = i / 6 * math.pi * 2
+		paint({
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.45, 2.2, 2.2),
+			CFrame = CFrame.new(origin + Vector3.new(math.cos(a) * 7.4, 2.1, math.sin(a) * 6.4)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = gold,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+		}, vault).Name = "VaultCoin"
+	end
+	buildSignBoard(vault, origin + Vector3.new(-9.2, 14.4, 0), Vector3.new(-1, 0, 0), 14, 4.5, gold, "THE VAULT", "BANKED CASH IS SAFE")
+	local light = Instance.new("PointLight")
+	light.Color = gold
+	light.Brightness = 1.6
+	light.Range = 26
+	light.Parent = vault
+end
+
+-- The neon dock/harbour strip: water, a metal pier, containers, crates, a
+-- gantry crane, barriers and a moored boat. This is the third readable zone.
+local function buildDock(parent: Instance, origin: Vector3)
+	local dock = Instance.new("Folder")
+	dock.Name = "NeonDock"
+	dock.Parent = parent
+	local pink = Color3.fromRGB(255, 95, 205)
+	local cyan = Color3.fromRGB(90, 230, 255)
+
+	local water = paint({
+		Size = Vector3.new(52, 0.7, 104),
+		CFrame = CFrame.new(origin + Vector3.new(14, 0.1, 0)),
+		Color = Color3.fromRGB(18, 74, 120),
+		Material = Enum.Material.Glass,
+		Transparency = 0.25,
+		CanCollide = false,
+	}, dock)
+	water.Name = "HarbourWater"
+	paint({
+		Size = Vector3.new(38, 1.6, 92),
+		CFrame = CFrame.new(origin + Vector3.new(0, 1.0, 0)),
+		Color = Color3.fromRGB(48, 44, 66),
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	}, dock).Name = "DockPlatform"
+	for _, z in ipairs({ -42, -21, 0, 21, 42 }) do
+		neonBar(Vector3.new(38.4, 0.18, 0.5), CFrame.new(origin + Vector3.new(0, 1.9, z)), cyan, dock, 0.15).Name = "DockStripe"
+	end
+	for _, x in ipairs({ -17.5, 0, 17.5 }) do
+		for _, z in ipairs({ -44, 44 }) do
+			paint({
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(4.5, 1.1, 1.1),
+				CFrame = CFrame.new(origin + Vector3.new(x, 3.2, z)),
+				Color = Color3.fromRGB(30, 30, 46),
+				Material = Enum.Material.Metal,
+				CanCollide = true,
+			}, dock).Name = "DockBollard"
+		end
+	end
+
+	-- Shipping containers, each with a neon stripe so they read from the plaza.
+	local containerColors = { Color3.fromRGB(235, 92, 92), Color3.fromRGB(70, 150, 240), Color3.fromRGB(90, 210, 150) }
+	for i, color in ipairs(containerColors) do
+		local pos = origin + Vector3.new(-11 + (i % 2) * 9, 5.2, -26 + i * 13)
+		paint({
+			Size = Vector3.new(11, 6, 8),
+			CFrame = CFrame.new(pos),
+			Color = color,
+			Material = Enum.Material.DiamondPlate,
+			CanCollide = true,
+		}, dock).Name = "Container"
+		neonBar(Vector3.new(11.2, 0.35, 8.2), CFrame.new(pos + Vector3.new(0, 3.1, 0)), Color3.fromRGB(255, 255, 255), dock, 0.25).Name = "ContainerTrim"
+	end
+
+	-- Crates near the gangway.
+	for i = 1, 5 do
+		local pos = origin + Vector3.new(-15 + (i % 3) * 4.5, 2.9 + math.floor(i / 3) * 1.5, 30 + (i % 2) * 3)
+		paint({
+			Size = Vector3.new(3.2, 2.6, 3.2),
+			CFrame = CFrame.new(pos) * CFrame.Angles(0, i * 0.35, 0),
+			Color = i % 2 == 0 and Color3.fromRGB(190, 140, 80) or Color3.fromRGB(150, 105, 60),
+			Material = Enum.Material.WoodPlanks,
+			CanCollide = true,
+		}, dock).Name = "Crate"
+	end
+
+	-- Gantry crane: four legs, a top beam, cable and a hanging hook.
+	for _, x in ipairs({ -14, 7 }) do
+		for _, z in ipairs({ -35, -19 }) do
+			paint({
+				Size = Vector3.new(1.4, 26, 1.4),
+				CFrame = CFrame.new(origin + Vector3.new(x, 14, z)),
+				Color = Color3.fromRGB(255, 190, 60),
+				Material = Enum.Material.Metal,
+				CanCollide = true,
+			}, dock).Name = "CraneLeg"
+		end
+	end
+	neonBar(Vector3.new(25, 1.4, 1.4), CFrame.new(origin + Vector3.new(-3.5, 27, -27)), pink, dock).Name = "CraneBeam"
+	paint({
+		Size = Vector3.new(0.3, 10, 0.3),
+		CFrame = CFrame.new(origin + Vector3.new(-3.5, 21.5, -27)),
+		Color = Color3.fromRGB(30, 30, 44),
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+	}, dock).Name = "CraneCable"
+	paint({
+		Size = Vector3.new(2.6, 1.4, 1.4),
+		CFrame = CFrame.new(origin + Vector3.new(-3.5, 16.3, -27)),
+		Color = Color3.fromRGB(255, 210, 80),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+	}, dock).Name = "CraneHook"
+
+	-- Moored boat at the far edge.
+	local boatPos = origin + Vector3.new(15, 2.2, -16)
+	paint({
+		Size = Vector3.new(7, 2.4, 13),
+		CFrame = CFrame.new(boatPos),
+		Color = Color3.fromRGB(245, 246, 255),
+		Material = Enum.Material.SmoothPlastic,
+		CanCollide = true,
+	}, dock).Name = "BoatHull"
+	paint({
+		Size = Vector3.new(5.4, 1.8, 5),
+		CFrame = CFrame.new(boatPos + Vector3.new(0, 2.1, -1)),
+		Color = Color3.fromRGB(240, 90, 140),
+		Material = Enum.Material.SmoothPlastic,
+		CanCollide = true,
+	}, dock).Name = "BoatCabin"
+	paint({
+		Size = Vector3.new(0.35, 9, 0.35),
+		CFrame = CFrame.new(boatPos + Vector3.new(0, 5.5, 3.5)),
+		Color = Color3.fromRGB(30, 30, 44),
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+	}, dock).Name = "BoatMast"
+	paint({
+		Size = Vector3.new(0.3, 4, 5),
+		CFrame = CFrame.new(boatPos + Vector3.new(0, 6, 5.5)),
+		Color = pink,
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+	}, dock).Name = "BoatSail"
+	buildSignBoard(dock, origin + Vector3.new(-19, 12, 34), Vector3.new(-1, 0, 0), 18, 6, pink, "NEON DOCK 01", "HARBOUR  •  CRATES  •  CASH")
+
+	-- Striped barriers where the harbour path meets the pier.
+	for _, z in ipairs({ -13, -3 }) do
+		local pos = origin + Vector3.new(-19, 2, z)
+		for i = 0, 3 do
+			paint({
+				Size = Vector3.new(0.9, 1.5, 1.5),
+				CFrame = CFrame.new(pos + Vector3.new(i * 0.9, 0, 0)),
+				Color = i % 2 == 0 and Color3.fromRGB(255, 200, 60) or Color3.fromRGB(40, 38, 55),
+				Material = Enum.Material.SmoothPlastic,
+				CanCollide = false,
+			}, dock).Name = "BarrierStripe"
+		end
+	end
+	local light = Instance.new("PointLight")
+	light.Color = cyan
+	light.Brightness = 3
+	light.Range = 42
+	light.Parent = dock
+end
+
+-- A wide paved path from the plaza to the harbour, plus lamp posts.
+local function buildHarbourPath(parent: Instance, origin: Vector3)
+	paint({
+		Size = Vector3.new(58, 0.4, 14),
+		CFrame = CFrame.new(origin + Vector3.new(55, 0.25, -8)),
+		Color = Color3.fromRGB(212, 204, 192),
+		Material = Enum.Material.Concrete,
+		CanCollide = false,
+	}, parent).Name = "HarbourPath"
+	paint({
+		Size = Vector3.new(20, 0.4, 14),
+		CFrame = CFrame.new(origin + Vector3.new(84, 0.25, -8)),
+		Color = Color3.fromRGB(90, 80, 120),
+		Material = Enum.Material.Metal,
+		CanCollide = false,
+	}, parent).Name = "DockGangway"
+	for _, x in ipairs({ 42, 64, 86 }) do
+		for _, z in ipairs({ -18, 2 }) do
+			paint({
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(11, 0.5, 0.5),
+				CFrame = CFrame.new(Vector3.new(x, 5.5, z)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = Color3.fromRGB(52, 46, 72),
+				Material = Enum.Material.Metal,
+				CanCollide = true,
+			}, parent).Name = "HarbourLamp"
+			local bulb = paint({
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.new(1.5, 1.5, 1.5),
+				CFrame = CFrame.new(Vector3.new(x, 11.2, z)),
+				Color = Color3.fromRGB(255, 210, 90),
+				Material = Enum.Material.Neon,
+			}, parent)
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(255, 210, 90)
+			light.Brightness = 1.4
+			light.Range = 20
+			light.Parent = bulb
+		end
+	end
+end
+
 function MapService.build(deps: any)
 	Util = deps.Util
 	Config = deps.Config
@@ -527,6 +867,10 @@ function MapService.build(deps: any)
 
 	buildWildZone(world, Vector3.new(0, map.wildTop, -94))
 	buildPortal(world, Vector3.new(0, 0, 94))
+	buildShopKiosk(world, map.shopPos)
+	buildVault(world, map.vaultPos)
+	buildDock(world, map.dockCenter)
+	buildHarbourPath(world, Vector3.new(0, 0, 0))
 
 	-- Pillars ring the plaza ------------------------------------------------
 	for i = 0, 7 do

@@ -24,6 +24,57 @@ local fullToastAt: { [Player]: number } = {}
 local deathConnections: { [Player]: any } = {}
 local brainrotFolder: Folder? = nil
 
+-- Server-owned upgrade numbers are read through UpgradeService; these helpers
+-- keep the old Config defaults as a safe fallback before boot finishes.
+local function carryCap(player: Player): number
+	if deps and deps.UpgradeService then
+		return deps.UpgradeService.getCarryCap(player)
+	end
+	return Config.MAX_CARRIED
+end
+
+local function padSlots(player: Player): number
+	if deps and deps.UpgradeService then
+		return deps.UpgradeService.getPadSlots(player)
+	end
+	return Config.MAX_BASE
+end
+
+local function incomeMultiplier(player: Player): number
+	local rebirth = deps.PlayerService.getMultiplier(player)
+	local upgrade = 1
+	if deps.UpgradeService then
+		upgrade = deps.UpgradeService.getIncomeMultiplier(player)
+	end
+	return rebirth * upgrade
+end
+
+local function afterCapture(player: Player, kind: any, position: Vector3?)
+	local count = 0
+	pcall(function()
+		count = deps.DataService.recordCapture(player, kind.id)
+	end)
+	pcall(function()
+		deps.QuestService.recordEvent(player, "capture", 1)
+	end)
+	pcall(function()
+		deps.OnboardingService.progress(player, "grab")
+	end)
+	pcall(function()
+		deps.StateService.push(player)
+	end)
+	if count == 1 and position then
+		pcall(function()
+			Util.fireClient(deps.Remotes.FX, player, {
+				kind = "discover",
+				position = position,
+				color = Config.RARITIES[kind.rarity].color,
+			})
+			Util.toast(deps.Remotes, player, string.format("NEW SPECIES: %s added to your Index!", kind.name), "legendary", 4)
+		end)
+	end
+end
+
 -- Primitive-part helpers ----------------------------------------------------
 local function at(x: number, y: number, z: number, rx: number?, ry: number?, rz: number?): CFrame
 	return CFrame.new(x, y, z) * CFrame.Angles(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
@@ -331,6 +382,236 @@ local function buildBanana(model: Model, kind: any, rarity: any)
 	v(model, "CrownBand", Vector3.new(1.3, 0.2, 0.3), at(0, 1.85, 0), Color3.fromRGB(255, 215, 70), Enum.Material.Neon)
 end
 
+-- The second half of the cast. Every shape is its own primitive-part recipe so
+-- the 22 creatures read as different silhouettes in a screenshot, not recolours.
+local function buildPhone(model: Model, kind: any, rarity: any)
+	v(model, "PhoneBody", Vector3.new(2.2, 3.8, 0.75), at(0, 0, 0), kind.body, Enum.Material.Metal)
+	v(model, "Screen", Vector3.new(1.8, 3.0, 0.12), at(0, 0.2, 0.44), kind.accent, Enum.Material.Neon, Enum.PartType.Block, 0.1)
+	v(model, "HomeButton", Vector3.new(0.42, 0.42, 0.14), at(0, -1.55, 0.44), kind.accent, Enum.Material.Neon, Enum.PartType.Ball)
+	v(model, "Camera", Vector3.new(0.28, 0.28, 0.28), at(0, 1.63, 0.4), Color3.fromRGB(24, 24, 34), Enum.Material.Neon, Enum.PartType.Ball)
+	v(model, "Antenna", Vector3.new(1.4, 0.13, 0.13), at(0.7, 2.25, 0, 0, 0, -32), Color3.fromRGB(210, 215, 230), Enum.Material.Metal, Enum.PartType.Cylinder)
+	eyes(model, 0.65, 0.52, 0.48, 0.42, kind.accent)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "Arm", Vector3.new(0.2, 1.1, 0.2), at(sx * 1.45, -0.3, 0, 0, 0, sx * 28), kind.body, Enum.Material.Metal, Enum.PartType.Cylinder)
+		v(model, "Leg", Vector3.new(0.22, 1.0, 0.22), at(sx * 0.65, -2.25, 0.05), kind.body, Enum.Material.Metal, Enum.PartType.Cylinder)
+	end
+	v(model, "Battery", Vector3.new(0.7, 0.22, 0.2), at(-0.55, 1.55, 0.1), kind.accent, Enum.Material.Neon)
+end
+
+local function buildDuck(model: Model, kind: any, rarity: any)
+	v(model, "DuckBody", Vector3.new(2.9, 2.5, 3.0), at(0, -0.6, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "DuckHead", Vector3.new(2.1, 2.0, 2.0), at(0, 1.55, 0.55), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "Beak", Vector3.new(1.3, 0.55, 1.1), at(0, 1.05, 1.7), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Block)
+	v(model, "BeakLip", Vector3.new(1.25, 0.16, 1.0), at(0, 0.92, 1.75), kind.accent:Lerp(Color3.fromRGB(180, 100, 20), 0.2), Enum.Material.SmoothPlastic)
+	eyes(model, 2.2, 1.25, 0.48, 0.42)
+	brows(model, 2.55, 1.3, 0.48, 9)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "Wing", Vector3.new(0.55, 1.5, 2.0), at(sx * 1.5, -0.5, -0.1, 0, 0, sx * 18), kind.body:Lerp(Color3.fromRGB(255, 255, 255), 0.15), Enum.Material.SmoothPlastic)
+		v(model, "Foot", Vector3.new(1.1, 0.22, 1.4), at(sx * 0.75, -2.0, 0.55), kind.accent, Enum.Material.SmoothPlastic)
+	end
+	v(model, "Tail", Vector3.new(0.9, 0.8, 0.7), at(0, 0.3, -1.5, -28, 0, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+end
+
+local function buildCheese(model: Model, kind: any, rarity: any)
+	v(model, "CheeseWedge", Vector3.new(3.4, 2.8, 3.0), at(0, -0.3, 0), kind.body, Enum.Material.SmoothPlastic)
+	v(model, "CheeseRind", Vector3.new(3.5, 2.9, 0.35), at(0, -0.3, -1.45), kind.accent, Enum.Material.SmoothPlastic)
+	for _, info in ipairs({
+		{ Vector3.new(-0.9, 0.3, 1.52), 0.72 },
+		{ Vector3.new(0.9, -0.45, 1.52), 0.55 },
+		{ Vector3.new(1.65, 0.7, 0.2), 0.48 },
+		{ Vector3.new(-1.65, -0.7, -0.3), 0.52 },
+	}) do
+		v(model, "Hole", Vector3.new(info[2], info[2], 0.3), at(info[1].X, info[1].Y, info[1].Z), Color3.fromRGB(205, 150, 35), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+	eyes(model, 0.65, 1.52, 0.62, 0.52)
+	brows(model, 1.1, 1.55, 0.62, -6)
+	v(model, "Mouth", Vector3.new(1.0, 0.18, 0.18), at(0, -0.25, 1.52), Color3.fromRGB(120, 80, 20))
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "CheeseArm", Vector3.new(0.22, 1.0, 0.22), at(sx * 1.85, -0.5, 0.3, 0, 0, sx * 35), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		v(model, "CheeseLeg", Vector3.new(0.35, 0.7, 0.35), at(sx * 0.9, -2.2, 0.2), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+end
+
+local function buildSock(model: Model, kind: any, rarity: any)
+	v(model, "SockLeg", Vector3.new(1.9, 3.2, 1.6), at(0, 0.4, 0), kind.body, Enum.Material.Fabric)
+	v(model, "SockFoot", Vector3.new(1.9, 1.4, 3.0), at(0, -1.35, 0.9), kind.body, Enum.Material.Fabric)
+	v(model, "SockToe", Vector3.new(1.95, 1.3, 0.8), at(0, -1.35, 2.55), kind.body:Lerp(Color3.fromRGB(255, 255, 255), 0.25), Enum.Material.Fabric, Enum.PartType.Ball)
+	v(model, "Cuff", Vector3.new(2.05, 0.55, 1.75), at(0, 2.1, 0), kind.accent, Enum.Material.SmoothPlastic)
+	for i = 0, 2 do
+		v(model, "Stripe", Vector3.new(1.95, 0.2, 1.65), at(0, 1.5 - i * 0.35, 0), kind.accent, Enum.Material.Neon)
+	end
+	eyes(model, 0.8, 1.0, 0.5, 0.46)
+	brows(model, 1.2, 1.05, 0.5, 12)
+	v(model, "Mouth", Vector3.new(0.9, 0.18, 0.16), at(0, 0.25, 1.02), Color3.fromRGB(80, 30, 70))
+	v(model, "Heel", Vector3.new(1.7, 0.3, 0.9), at(0, -2.0, 0.05), kind.accent, Enum.Material.SmoothPlastic)
+end
+
+local function buildPizza(model: Model, kind: any, rarity: any)
+	v(model, "PizzaBase", Vector3.new(1.1, 4.6, 4.6), at(0, 0, 0, 0, 0, 90), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "Crust", Vector3.new(1.25, 5.0, 5.0), at(0, -0.2, 0, 0, 0, 90), kind.body:Lerp(Color3.fromRGB(190, 120, 30), 0.35), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "Sauce", Vector3.new(0.2, 4.1, 4.1), at(0, 0.48, 0, 0, 0, 90), Color3.fromRGB(225, 80, 45), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	for i = 1, 6 do
+		local a = i / 6 * math.pi * 2
+		v(model, "Pepperoni", Vector3.new(0.25, 0.9, 0.9), at(math.cos(a) * 1.35, 0.68, math.sin(a) * 1.35), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+	v(model, "CheeseSlice", Vector3.new(0.18, 2.2, 2.2), at(0, 0.75, 0), Color3.fromRGB(255, 220, 110), Enum.Material.Neon, Enum.PartType.Cylinder, 0.25)
+	eyes(model, 0.5, 1.75, 0.45, 0.44)
+	brows(model, 0.95, 1.8, 0.45, -8)
+	v(model, "PizzaArmL", Vector3.new(0.22, 1.2, 0.22), at(-1.95, 0.1, 0, 0, 0, -52), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "PizzaArmR", Vector3.new(0.22, 1.2, 0.22), at(1.95, 0.1, 0, 0, 0, 52), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+end
+
+local function buildWorm(model: Model, kind: any, rarity: any)
+	for i = 1, 5 do
+		local z = 1.4 - i * 0.8
+		local size = 1.9 - i * 0.16
+		v(model, "Segment", Vector3.new(size, size, size), at(math.sin(i * 0.9) * 0.35, -0.3 + math.sin(i) * 0.15, z), i % 2 == 0 and kind.body or kind.body:Lerp(Color3.fromRGB(255, 255, 255), 0.18), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+	v(model, "WormHead", Vector3.new(2.1, 2.1, 2.1), at(0, 0.35, 2.2), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	eyes(model, 0.85, 3.05, 0.52, 0.5)
+	brows(model, 1.35, 3.08, 0.52, 16)
+	v(model, "Mouth", Vector3.new(1.1, 0.2, 0.2), at(0, 0.05, 3.12), Color3.fromRGB(80, 30, 70))
+	v(model, "TinyHat", Vector3.new(1.3, 0.2, 1.3), at(0, 1.6, 2.2), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "TinyHatTop", Vector3.new(0.8, 0.6, 0.8), at(0, 1.95, 2.2), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "WormTail", Vector3.new(1.1, 1.1, 1.1), at(0.2, -0.2, -2.8), kind.accent, Enum.Material.Neon, Enum.PartType.Ball, 0.15)
+end
+
+local function buildDonut(model: Model, kind: any, rarity: any)
+	for i = 1, 12 do
+		local a = i / 12 * math.pi * 2
+		v(model, "DoughRing", Vector3.new(1.5, 1.5, 1.5), at(math.cos(a) * 1.95, 0, math.sin(a) * 1.95), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+	v(model, "FrostingTop", Vector3.new(4.4, 0.5, 4.4), at(0, 0.32, 0), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "FrostingHole", Vector3.new(0.55, 1.5, 1.5), at(0, 0.35, 0), Color3.fromRGB(55, 35, 45), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	for i = 1, 8 do
+		local a = i / 8 * math.pi * 2
+		v(model, "Sprinkle", Vector3.new(0.16, 0.16, 0.65), at(math.cos(a) * 2.5, 0.6, math.sin(a) * 2.5, 0, i * 45, 0), i % 2 == 0 and Color3.fromRGB(90, 230, 255) or Color3.fromRGB(255, 255, 255), Enum.Material.Neon)
+	end
+	eyes(model, 0.6, 2.5, 0.52, 0.48)
+	brows(model, 1.05, 2.55, 0.52, 10)
+	v(model, "Mouth", Vector3.new(0.9, 0.18, 0.18), at(0, 0.05, 2.62), Color3.fromRGB(90, 30, 60))
+end
+
+local function buildCrab(model: Model, kind: any, rarity: any)
+	v(model, "Shell", Vector3.new(4.0, 1.9, 3.2), at(0, 0, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "ShellTop", Vector3.new(3.2, 1.0, 2.4), at(0, 0.85, -0.2), kind.body:Lerp(Color3.fromRGB(255, 255, 255), 0.2), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, sx in ipairs({ -1, 1 }) do
+		for i = 1, 3 do
+			local z = 1.0 - i * 0.7
+			v(model, "CrabLeg", Vector3.new(0.22, 1.5, 0.22), at(sx * (2.1 + i * 0.1), -0.65, z, 0, 0, sx * 52), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		end
+		v(model, "ClawArm", Vector3.new(0.25, 1.3, 0.25), at(sx * 2.15, 0.2, 0.9, 0, 0, sx * 68), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		v(model, "Claw", Vector3.new(1.25, 0.75, 0.9), at(sx * 2.8, 0.9, 1.05), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		v(model, "ClawPincer", Vector3.new(0.9, 0.35, 0.5), at(sx * 3.15, 1.2, 1.35, 0, 0, sx * 22), kind.accent, Enum.Material.SmoothPlastic)
+		v(model, "EyeStalk", Vector3.new(0.5, 0.22, 0.22), at(sx * 0.65, 2.15, 0.4), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		v(model, "Eye", Vector3.new(0.62, 0.62, 0.55), at(sx * 0.8, 2.4, 0.4), Color3.fromRGB(255, 255, 255), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		v(model, "Pupil", Vector3.new(0.28, 0.32, 0.22), at(sx * 0.8, 2.42, 0.7), Color3.fromRGB(25, 20, 30), Enum.Material.Neon, Enum.PartType.Ball)
+	end
+	v(model, "CrabMouth", Vector3.new(0.9, 0.16, 0.2), at(0, -0.55, 1.6), Color3.fromRGB(80, 25, 35))
+end
+
+local function buildBalloon(model: Model, kind: any, rarity: any)
+	v(model, "Balloon", Vector3.new(3.5, 4.2, 3.5), at(0, 1.5, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "BalloonShine", Vector3.new(0.7, 1.2, 0.2), at(-1.0, 2.4, 1.45, 0, 0, 24), Color3.fromRGB(255, 255, 255), Enum.Material.Neon, Enum.PartType.Ball, 0.3)
+	v(model, "Knot", Vector3.new(0.55, 0.55, 0.55), at(0, -0.75, 0), kind.body:Lerp(Color3.fromRGB(120, 30, 80), 0.25), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "String", Vector3.new(2.6, 0.07, 0.07), at(0.25, -2.0, 0, 0, 0, -12), Color3.fromRGB(240, 240, 255), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	eyes(model, 1.9, 1.75, 0.62, 0.55)
+	brows(model, 2.45, 1.8, 0.62, -12)
+	v(model, "BalloonMouth", Vector3.new(0.8, 0.18, 0.18), at(0, 1.0, 1.72), kind.accent, Enum.Material.SmoothPlastic)
+	v(model, "BalloonCheekL", Vector3.new(0.55, 0.35, 0.2), at(-1.05, 1.0, 1.45), kind.accent, Enum.Material.Neon, Enum.PartType.Ball, 0.3)
+	v(model, "BalloonCheekR", Vector3.new(0.55, 0.35, 0.2), at(1.05, 1.0, 1.45), kind.accent, Enum.Material.Neon, Enum.PartType.Ball, 0.3)
+end
+
+local function buildGhost(model: Model, kind: any, rarity: any)
+	v(model, "GhostBody", Vector3.new(3.2, 3.4, 3.0), at(0, 0.3, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball, 0.15)
+	for i = 1, 4 do
+		local x = -1.5 + i * 0.75
+		v(model, "GhostSkirt", Vector3.new(1.1, 1.1, 1.1), at(x, -1.5 + (i % 2) * 0.25, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball, 0.15)
+	end
+	v(model, "GhostHood", Vector3.new(3.4, 1.2, 3.1), at(0, 1.65, 0), kind.accent, Enum.Material.Neon, Enum.PartType.Ball, 0.45)
+	eyes(model, 0.65, 1.55, 0.62, 0.6, kind.accent)
+	v(model, "GhostMouth", Vector3.new(0.75, 0.9, 0.3), at(0, -0.25, 1.5), Color3.fromRGB(35, 22, 60), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "GhostArm", Vector3.new(0.45, 1.2, 0.45), at(sx * 1.75, 0.2, 0.2, 0, 0, sx * 35), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball, 0.25)
+	end
+	local light = Instance.new("PointLight")
+	light.Color = kind.accent
+	light.Brightness = 0.8
+	light.Range = 10
+	light.Parent = model.PrimaryPart or model
+end
+
+local function buildSkull(model: Model, kind: any, rarity: any)
+	v(model, "SkullCranium", Vector3.new(3.2, 2.9, 2.9), at(0, 0.55, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "SkullJaw", Vector3.new(2.4, 1.1, 2.1), at(0, -1.1, 0.25), kind.body:Lerp(Color3.fromRGB(200, 190, 175), 0.25), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "Socket", Vector3.new(0.9, 0.9, 0.3), at(sx * 0.65, 0.8, 1.38), Color3.fromRGB(22, 18, 30), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		v(model, "SocketGlow", Vector3.new(0.25, 0.25, 0.12), at(sx * 0.65, 0.8, 1.55), kind.accent, Enum.Material.Neon, Enum.PartType.Ball)
+		v(model, "Horn", Vector3.new(1.1, 0.35, 0.35), at(sx * 1.55, 1.85, 0, 0, 0, sx * 55), kind.body:Lerp(Color3.fromRGB(120, 110, 100), 0.4), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+	teeth(model, -0.85, 1.12, 5, 0.38, Color3.fromRGB(255, 255, 255))
+	v(model, "NoseHoleL", Vector3.new(0.2, 0.3, 0.15), at(-0.2, 0.0, 1.45), Color3.fromRGB(40, 30, 45))
+	v(model, "NoseHoleR", Vector3.new(0.2, 0.3, 0.15), at(0.2, 0.0, 1.45), Color3.fromRGB(40, 30, 45))
+	v(model, "SkullCrown", Vector3.new(1.2, 0.2, 1.2), at(0, 2.1, 0), kind.accent, Enum.Material.Neon, Enum.PartType.Cylinder)
+	for i = 1, 3 do
+		v(model, "CrownSpike", Vector3.new(0.3, 0.55, 0.3), at(-0.4 + i * 0.4, 2.4, 0), kind.accent, Enum.Material.Neon)
+	end
+end
+
+local function buildRobot(model: Model, kind: any, rarity: any)
+	v(model, "RobotBody", Vector3.new(2.8, 2.7, 2.2), at(0, -0.45, 0), kind.body, Enum.Material.Metal)
+	v(model, "RobotHead", Vector3.new(2.2, 1.9, 2.0), at(0, 1.45, 0), kind.body:Lerp(Color3.fromRGB(255, 255, 255), 0.2), Enum.Material.Metal)
+	v(model, "Visor", Vector3.new(1.8, 0.6, 0.18), at(0, 1.55, 1.02), Color3.fromRGB(20, 25, 35), Enum.Material.Neon)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "RoboEye", Vector3.new(0.38, 0.38, 0.2), at(sx * 0.5, 1.55, 1.13), kind.accent, Enum.Material.Neon, Enum.PartType.Ball)
+		v(model, "RoboArm", Vector3.new(0.35, 1.6, 0.35), at(sx * 1.7, -0.35, 0, 0, 0, sx * 12), kind.body, Enum.Material.Metal, Enum.PartType.Cylinder)
+		v(model, "RoboClaw", Vector3.new(0.8, 0.35, 0.5), at(sx * 1.9, -1.2, 0.25), kind.accent, Enum.Material.Metal)
+		v(model, "RoboLeg", Vector3.new(0.55, 1.1, 0.8), at(sx * 0.75, -2.4, 0), Color3.fromRGB(55, 60, 78), Enum.Material.Metal)
+	end
+	v(model, "ChestCore", Vector3.new(0.8, 0.8, 0.25), at(0, -0.4, 1.15), kind.accent, Enum.Material.Neon, Enum.PartType.Cylinder)
+	v(model, "Antenna", Vector3.new(0.15, 1.1, 0.15), at(0, 2.9, 0), kind.body, Enum.Material.Metal, Enum.PartType.Cylinder)
+	v(model, "AntennaBall", Vector3.new(0.5, 0.5, 0.5), at(0, 3.45, 0), kind.accent, Enum.Material.Neon, Enum.PartType.Ball)
+	v(model, "MouthGrill", Vector3.new(1.1, 0.18, 0.12), at(0, 0.85, 1.05), Color3.fromRGB(55, 60, 78), Enum.Material.Metal)
+end
+
+local function buildDragon(model: Model, kind: any, rarity: any)
+	v(model, "DragonBody", Vector3.new(2.9, 2.2, 3.8), at(0, -0.2, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "DragonHead", Vector3.new(2.4, 2.0, 2.3), at(0, 1.55, 1.35), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "DragonSnout", Vector3.new(1.5, 0.9, 1.2), at(0, 1.05, 2.55), kind.body:Lerp(Color3.fromRGB(255, 255, 255), 0.12), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "DragonWing", Vector3.new(0.35, 2.6, 3.4), at(sx * 2.0, 1.1, -0.8, 0, 0, sx * 28), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Block, 0.15)
+		v(model, "DragonWingTip", Vector3.new(0.3, 1.0, 2.0), at(sx * 3.0, 2.0, -1.0, 0, 0, sx * 52), kind.accent, Enum.Material.Neon, Enum.PartType.Block, 0.25)
+		v(model, "DragonHorn", Vector3.new(1.0, 0.32, 0.32), at(sx * 0.85, 2.65, 1.1, 0, 0, sx * 45), Color3.fromRGB(255, 240, 200), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		v(model, "DragonLeg", Vector3.new(0.6, 1.2, 0.7), at(sx * 1.05, -1.85, 0.8), kind.body, Enum.Material.SmoothPlastic)
+		v(model, "DragonClaw", Vector3.new(0.7, 0.3, 0.9), at(sx * 1.05, -2.5, 1.25), Color3.fromRGB(255, 240, 200), Enum.Material.SmoothPlastic)
+	end
+	eyes(model, 1.8, 2.5, 0.48, 0.42, kind.accent)
+	v(model, "DragonMouth", Vector3.new(1.1, 0.2, 0.15), at(0, 0.9, 3.15), Color3.fromRGB(90, 25, 50))
+	for i = 1, 4 do
+		v(model, "BackSpike", Vector3.new(0.55 - i * 0.07, 0.7, 0.55), at(0, 0.9, -0.2 - i * 0.55), kind.accent, Enum.Material.Neon)
+	end
+	v(model, "DragonTail", Vector3.new(0.8, 0.8, 2.2), at(0, -0.1, -2.4, 12, 0, 0), kind.body, Enum.Material.SmoothPlastic)
+	v(model, "TailSpade", Vector3.new(1.0, 0.2, 1.0), at(0, 0.3, -3.5), kind.accent, Enum.Material.Neon, Enum.PartType.Ball)
+end
+
+local function buildCat(model: Model, kind: any, rarity: any)
+	v(model, "CatBody", Vector3.new(2.6, 2.4, 3.2), at(0, -0.55, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "CatHead", Vector3.new(2.3, 2.1, 2.1), at(0, 1.35, 0.75), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, sx in ipairs({ -1, 1 }) do
+		v(model, "CatEar", Vector3.new(0.8, 1.2, 0.4), at(sx * 0.8, 2.45, 0.6, 0, 0, sx * -12), kind.body, Enum.Material.SmoothPlastic)
+		v(model, "CatEarInner", Vector3.new(0.45, 0.7, 0.2), at(sx * 0.8, 2.45, 0.82, 0, 0, sx * -12), kind.accent, Enum.Material.Neon)
+		v(model, "Whisker", Vector3.new(1.1, 0.06, 0.06), at(sx * 1.15, 0.95, 1.65, 0, sx * 14, sx * 8), Color3.fromRGB(255, 255, 255), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		v(model, "CatPaw", Vector3.new(0.75, 0.55, 1.0), at(sx * 0.8, -1.85, 0.85), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		v(model, "CatPawBean", Vector3.new(0.45, 0.18, 0.4), at(sx * 0.8, -2.05, 1.25), kind.accent, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+	eyes(model, 1.6, 1.85, 0.55, 0.46, kind.accent)
+	brows(model, 2.05, 1.9, 0.55, -8)
+	v(model, "CatNose", Vector3.new(0.3, 0.24, 0.2), at(0, 1.1, 1.8), Color3.fromRGB(255, 140, 170), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	v(model, "CatMouth", Vector3.new(0.5, 0.12, 0.12), at(0, 0.8, 1.82), Color3.fromRGB(60, 30, 50))
+	v(model, "CatTail", Vector3.new(0.9, 0.35, 2.4), at(0.2, 0.4, -2.5, -22, 0, 0), kind.body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	v(model, "CatCollar", Vector3.new(2.35, 0.35, 2.15), at(0, 0.45, 0.75), kind.accent, Enum.Material.Neon, Enum.PartType.Block, 0.15)
+end
+
 local builders = {
 	toilet = buildToilet,
 	taco = buildTaco,
@@ -340,6 +621,20 @@ local builders = {
 	bomb = buildBomb,
 	cactus = buildCactus,
 	banana = buildBanana,
+	phone = buildPhone,
+	duck = buildDuck,
+	cheese = buildCheese,
+	sock = buildSock,
+	pizza = buildPizza,
+	worm = buildWorm,
+	donut = buildDonut,
+	crab = buildCrab,
+	balloon = buildBalloon,
+	ghost = buildGhost,
+	skull = buildSkull,
+	robot = buildRobot,
+	dragon = buildDragon,
+	cat = buildCat,
 }
 
 local function buildModel(kind: any, rarity: any): (Model, BasePart)
@@ -433,7 +728,7 @@ local function updatePlayerAttributes(player: Player)
 	end
 	player:SetAttribute("Carried", carryCount)
 	player:SetAttribute("Placed", baseCount)
-	player:SetAttribute("IncomePerSec", income * deps.PlayerService.getMultiplier(player))
+	player:SetAttribute("IncomePerSec", income * incomeMultiplier(player))
 end
 
 local function onTouched(record: any, hit: BasePart?)
@@ -508,11 +803,12 @@ function BrainrotService.attemptGrab(player: Player, record: any)
 		list = {}
 		carried[player] = list
 	end
-	if #list >= Config.MAX_CARRIED then
+	local cap = carryCap(player)
+	if #list >= cap then
 		local now = os.clock()
 		if (fullToastAt[player] or 0) < now then
 			fullToastAt[player] = now + 2
-			Util.toast(deps.Remotes, player, "Hands full (3/3). Run to your pad and bank them!", "bad", 3)
+			Util.toast(deps.Remotes, player, string.format("Hands full (%d/%d). Bank them or buy Carry Cap!", #list, cap), "bad", 3)
 		end
 		return false
 	end
@@ -531,10 +827,11 @@ function BrainrotService.attemptGrab(player: Player, record: any)
 		position = record.model:GetPivot().Position,
 		color = record.rarity.color,
 	})
-	Util.toast(deps.Remotes, player, string.format("Grabbed %s (%s) • $%d/sec. Bank it at your pad!", record.kind.name, record.rarity.name, record.rarity.value), "good", 4)
+	Util.toast(deps.Remotes, player, string.format("Grabbed %s (%s) • $%d/sec. %s", record.kind.name, record.rarity.name, record.rarity.value, record.kind.quip), "good", 4)
 	if record.rarity.value >= Config.RARITIES.Legendary.value then
 		Util.broadcastToast(deps.Remotes, string.format("%s grabbed a %s %s!", player.DisplayName, record.rarity.name, record.kind.name), "legendary", 5)
 	end
+	afterCapture(player, record.kind, record.model:GetPivot().Position)
 	return true
 end
 
@@ -626,10 +923,11 @@ function BrainrotService.placeCarried(player: Player): number
 
 	-- Iterate a copy: the carried list shrinks as each creature is banked.
 	local moved = 0
+	local slotCap = padSlots(player)
 	local copy = table.clone(list)
 	for _, rec in ipairs(copy) do
 		local slot = nil
-		for i = 1, Config.MAX_BASE do
+		for i = 1, slotCap do
 			if not occupied[i] then
 				slot = i
 				break
@@ -649,7 +947,7 @@ function BrainrotService.placeCarried(player: Player): number
 	end
 
 	if #list > 0 then
-		Util.toast(deps.Remotes, player, "Your base is full (8/8). Rebirth clears it for more!", "bad", 4)
+		Util.toast(deps.Remotes, player, string.format("Your base is full (%d/%d). Buy Pad Slots or rebirth!", #baseList, slotCap), "bad", 4)
 	end
 	updatePlayerAttributes(player)
 	deps.BaseService.refreshPad(player)
@@ -659,6 +957,20 @@ function BrainrotService.placeCarried(player: Player): number
 			position = pad.center + Vector3.new(0, 4, 0),
 			count = moved,
 		})
+		Util.fireClient(deps.Remotes.FX, player, {
+			kind = "padPulse",
+			position = pad.center,
+			count = moved,
+		})
+		pcall(function()
+			deps.QuestService.recordEvent(player, "bank", moved)
+		end)
+		pcall(function()
+			deps.OnboardingService.progress(player, "bank")
+		end)
+		pcall(function()
+			deps.StateService.push(player)
+		end)
 	end
 	return moved
 end
@@ -870,10 +1182,11 @@ local function movementLoop()
 						if owner and hrp and hrp:IsA("BasePart") then
 							local list = carried[owner]
 							local index = list and table.find(list, record) or 1
-							local offsets = { -1.55, 0, 1.55 }
-							local x = offsets[math.clamp(index, 1, 3)] or 0
+							local offsets = { -1.55, 0, 1.55, -0.8, 0.8, -2.2, 2.2, 0 }
+							local x = offsets[math.clamp(index, 1, 8)] or 0
+							local row = math.floor((math.clamp(index, 1, 8) - 1) / 3)
 							local bob = math.sin(now * 3 + record.phase) * 0.22
-							local pos = hrp.Position + Vector3.new(x, 4.2 + index * 0.2, 0) + Vector3.new(0, bob, 0)
+							local pos = hrp.Position + Vector3.new(x, 4.2 + index * 0.2 + row * 0.35, 0) + Vector3.new(0, bob, 0)
 							local look = hrp.CFrame.LookVector
 							local yaw = math.atan2(look.X, look.Z)
 							pivotRecord(record, pos, yaw)
@@ -918,7 +1231,7 @@ local function incomeLoop()
 							pcall(snapPlaced, rec)
 						end
 					end
-					local multiplier = deps.PlayerService.getMultiplier(player)
+					local multiplier = incomeMultiplier(player)
 					local amount = perSecond * multiplier
 					if amount > 0 then
 						deps.PlayerService.addCash(player, amount)
@@ -935,6 +1248,40 @@ local function incomeLoop()
 						end
 					end
 					player:SetAttribute("IncomePerSec", perSecond * multiplier)
+				end
+			end
+		end
+	end)
+end
+
+-- Magnet upgrade: every 0.4s, pull wild brainrots inside the player's radius
+-- into their hands. The same server-side attemptGrab path validates the cap,
+-- so a magnet can never bypass carry rules.
+local function magnetLoop()
+	task.spawn(function()
+		while true do
+			task.wait(0.4)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local radius = 0
+				if deps.UpgradeService then
+					radius = deps.UpgradeService.getMagnetRadius(player)
+				end
+				if radius > 0 and BrainrotService.getCarriedCount(player) < carryCap(player) then
+					local character = player.Character
+					local hrp = character and character:FindFirstChild("HumanoidRootPart")
+					if hrp and hrp:IsA("BasePart") then
+						local snapshot = table.clone(wild)
+						for _, record in ipairs(snapshot) do
+							if record.state == "wild" and record.model.Parent then
+								if Util.flatDistance(hrp.Position, record.model:GetPivot().Position) <= radius then
+									BrainrotService.attemptGrab(player, record)
+									if BrainrotService.getCarriedCount(player) >= carryCap(player) then
+										break
+									end
+								end
+							end
+						end
+					end
 				end
 			end
 		end
@@ -976,9 +1323,9 @@ function BrainrotService.init(services: any)
 	placed = {}
 	rootToRecord = {}
 
-	-- Seed the wild with the first six cast members so the world reads alive
-	-- immediately; rarer ones join on the weighted spawn timer.
-	for i = 1, math.min(6, #Config.BRAINROTS) do
+	-- Seed the wild with the first eight cast members so the world reads alive
+	-- immediately; the other fourteen join on the weighted spawn timer.
+	for i = 1, math.min(8, #Config.BRAINROTS) do
 		pcall(function()
 			BrainrotService.spawnOne(Config.BRAINROTS[i])
 		end)
@@ -987,6 +1334,7 @@ function BrainrotService.init(services: any)
 	incomeLoop()
 	spawnLoop()
 	movementLoop()
+	magnetLoop()
 end
 
 return BrainrotService
