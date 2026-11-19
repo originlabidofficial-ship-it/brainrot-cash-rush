@@ -1,43 +1,58 @@
--- WaveService: the 90-second Brainrot Wave. A glowing neon wall of parts
--- sweeps across the arena from east to west. Five seconds before it launches,
--- the HUD screams. A carrying player caught in it drops everything back to the
--- wild, unless they are standing on their own base deck (the safe zone), which
--- is why players learn to run home.
+--!strict
+-- WaveService — the Brainrot Wave, every 90 seconds.
+--
+-- A neon wall sweeps east to west across the arena. Five seconds before it
+-- launches the HUD is warned. Any player carrying creatures who is caught
+-- outside their own guarded base drops everything back into the wild, which is
+-- the whole reason bases exist.
+--
+-- The wave is fail-safe: the wall is always destroyed and the timer is always
+-- re-armed, even if a decorative part fails halfway through a sweep.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local WaveService = {}
 
-local Util
-local Config
+local Config: any = nil
+local Util: any = nil
 local deps: any = nil
 
-local nextWaveAt = 0
-local waveBusy = false
-local warningSent = false
-local safeNoticed: { [Player]: boolean } = {}
-local waveCount = 0
+local state = {
+	running = false,
+	busy = false,
+	warningSent = false,
+	count = 0,
+	nextAt = 0,
+	safeNoticed = {} :: { [Player]: boolean },
+}
 
-local function setWaveAttributes(timeLeft: number, warning: boolean, active: boolean)
+local function publish(timeLeft: number, warning: boolean, active: boolean)
 	pcall(function()
 		Workspace:SetAttribute("WaveTimeLeft", timeLeft)
 		Workspace:SetAttribute("WaveWarning", warning)
 		Workspace:SetAttribute("WaveActive", active)
-		Workspace:SetAttribute("WaveNumber", waveCount)
+		Workspace:SetAttribute("WaveNumber", state.count)
 	end)
 end
 
-local function buildWall(): Model
+local function wallFolder(): Folder
 	local folder = Workspace:FindFirstChild("Waves")
 	if not folder then
 		folder = Instance.new("Folder")
 		folder.Name = "Waves"
 		folder.Parent = Workspace
 	end
+	return folder :: Folder
+end
 
+-- Build the moving wall. It is a model with a transparent root so PivotTo can
+-- move the whole thing with one call per frame.
+local function assembleWall(): Model
+	local folder = wallFolder()
 	local model = Instance.new("Model")
 	model.Name = "BrainrotWave"
+
 	local root = Instance.new("Part")
 	root.Name = "WaveRoot"
 	root.Size = Vector3.new(1, 1, 1)
@@ -49,36 +64,38 @@ local function buildWall(): Model
 	root.Parent = model
 	model.PrimaryPart = root
 
-	local segmentWidth = 13.8
-	local count = 18
+	local count = Config.WAVE_SEGMENTS
+	local span = Config.MAP.arenaSize - 16
+	local segmentWidth = span / count
 	for i = 1, count do
-		local z = -117 + (i - 1) * segmentWidth
-		local tint = i % 2 == 0 and Color3.fromRGB(255, 65, 120) or Color3.fromRGB(255, 140, 200)
+		local z = -span / 2 + (i - 0.5) * segmentWidth
+		local color = i % 2 == 0 and Color3.fromRGB(255, 65, 120) or Color3.fromRGB(255, 148, 205)
+
 		local solid = Util.part({
+			Name = "WaveSegment",
 			Size = Vector3.new(7, 30, segmentWidth - 0.7),
 			CFrame = CFrame.new(0, 17, z),
-			Color = tint,
+			Color = color,
 			Material = Enum.Material.Neon,
 			Transparency = 0.42,
 			CanCollide = false,
 			CanQuery = false,
 		}, model)
-		solid.Name = "WaveSegment"
 
-		local core = Util.part({
+		Util.part({
+			Name = "WaveCore",
 			Size = Vector3.new(1.4, 25, segmentWidth - 2.2),
 			CFrame = CFrame.new(0, 16.5, z),
-			Color = Color3.fromRGB(255, 245, 250),
+			Color = Color3.fromRGB(255, 246, 250),
 			Material = Enum.Material.Neon,
 			Transparency = 0.15,
 			CanCollide = false,
 			CanQuery = false,
 		}, model)
-		core.Name = "WaveCore"
 
 		if i % 4 == 1 then
 			local light = Instance.new("PointLight")
-			light.Color = tint
+			light.Color = color
 			light.Brightness = 3
 			light.Range = 32
 			light.Parent = solid
@@ -90,84 +107,92 @@ local function buildWall(): Model
 	return model
 end
 
-local function checkPlayers(wallX: number)
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player.Parent then
-			local character = player.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
-			if root and root:IsA("BasePart") then
-				local pos = root.Position
-				if math.abs(pos.X - wallX) <= 7.5 and math.abs(pos.Z) <= 122 and pos.Y < 60 then
-					if deps.BaseService.isPlayerOnOwnPad(player) then
-						if not safeNoticed[player] then
-							safeNoticed[player] = true
-							Util.toast(deps.Remotes, player, "Safe on your base! The wave rolled past.", "good", 3)
-						end
-					else
-						local carried = deps.BrainrotService.getCarriedCount(player)
-						if carried > 0 then
-							deps.BrainrotService.dropCarriedToWild(player, "wave")
-							Util.toast(deps.Remotes, player, "THE WAVE GOT YOU! Your brainrots scattered back to the wild.", "bad", 5)
-							Util.fireClient(deps.Remotes.FX, player, {
-								kind = "shake",
-								strength = 1.4,
-								duration = 0.7,
-							})
-							Util.fireClient(deps.Remotes.FX, player, {
-								kind = "waveHit",
-								duration = 1.2,
-							})
-						end
-					end
-				end
-			end
-		end
-	end
-end
-
-function WaveService.runWave()
-	if waveBusy then
+-- One player caught by the wall at world X.
+local function hitPlayer(player: Player, wallX: number)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) then
 		return
 	end
-	waveBusy = true
-	waveCount += 1
-	safeNoticed = {}
-	setWaveAttributes(0, false, true)
+	local position = root.Position
+	if math.abs(position.X - wallX) > 7.5 or math.abs(position.Z) > Config.MAP.arenaHalf or position.Y > 60 then
+		return
+	end
 
-	Util.fireAll(deps.Remotes.FX, {
-		kind = "waveStart",
-		number = waveCount,
-	})
-	Util.broadcastToast(deps.Remotes, "THE BRAINROT WAVE IS HERE! Bank your brainrots!", "bad", 4)
+	if deps.BaseService.isPlayerOnOwnPad(player) then
+		if not state.safeNoticed[player] then
+			state.safeNoticed[player] = true
+			Util.toast(deps.Remotes, player, "Safe on your base! The wave rolled past.", "good", Config.TOAST.short)
+		end
+		return
+	end
 
-	local wall = buildWall()
+	if deps.BrainrotService.getCarriedCount(player) <= 0 then
+		return
+	end
+	deps.BrainrotService.dropCarriedToWild(player, "wave")
+	Util.toast(deps.Remotes, player, "THE WAVE GOT YOU! Your brainrots scattered back to the wild.", "bad", Config.TOAST.long)
+	Util.fireClient(deps.Remotes.FX, player, { kind = "shake", strength = 1.4, duration = 0.7 })
+	Util.fireClient(deps.Remotes.FX, player, { kind = "waveHit", duration = 1.2 })
+end
+
+local function sweep(wall: Model)
 	local startX = Config.MAP.arenaHalf + 14
 	local endX = -Config.MAP.arenaHalf - 14
 	wall:PivotTo(CFrame.new(startX, 0, 0))
 
-	local duration = Config.WAVE_DURATION
 	local started = os.clock()
-	while true do
-		local alpha = math.min(1, (os.clock() - started) / duration)
+	while state.running do
+		local alpha = math.min(1, (os.clock() - started) / Config.WAVE_DURATION)
 		local x = startX + (endX - startX) * alpha
 		pcall(function()
 			wall:PivotTo(CFrame.new(x, 0, 0))
 		end)
-		checkPlayers(x)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player.Parent then
+				local ok = pcall(hitPlayer, player, x)
+				if not ok then
+					warn("[WaveService] wave check skipped a player")
+				end
+			end
+		end
 		if alpha >= 1 then
 			break
 		end
-		task.wait(0.05)
+		task.wait(Config.WAVE_SPEED_STEP)
 	end
+end
 
+local function resetAfterWave()
+	state.busy = false
+	state.warningSent = false
+	state.nextAt = os.clock() + Config.WAVE_INTERVAL
+	publish(Config.WAVE_INTERVAL, false, false)
+end
+
+function WaveService.runWave()
+	if state.busy or not state.running then
+		return
+	end
+	state.busy = true
+	state.count += 1
+	state.safeNoticed = {}
+	publish(0, false, true)
+
+	Util.fireAll(deps.Remotes.FX, { kind = "waveStart", number = state.count })
+	Util.broadcastToast(deps.Remotes, "THE BRAINROT WAVE IS HERE! Bank your brainrots!", "bad", Config.TOAST.normal)
+
+	local wall = assembleWall()
+	local ok, err = pcall(sweep, wall)
+	if not ok then
+		warn("[WaveService] sweep failed: " .. tostring(err))
+	end
 	if wall and wall.Parent then
 		wall:Destroy()
 	end
-	waveBusy = false
-	nextWaveAt = os.clock() + Config.WAVE_INTERVAL
-	warningSent = false
-	setWaveAttributes(Config.WAVE_INTERVAL, false, false)
-	Util.broadcastToast(deps.Remotes, "Wave over. The wild is restocked — go grab!", "info", 3)
+	resetAfterWave()
+
+	Util.broadcastToast(deps.Remotes, "Wave over. The wild is restocked — go grab!", "info", Config.TOAST.short)
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player.Parent then
 			pcall(function()
@@ -177,64 +202,79 @@ function WaveService.runWave()
 	end
 end
 
--- Public helper so a reviewer (or a future admin) can summon a wave on demand.
+-- Public helper: an admin/reviewer can trigger a wave out of schedule.
 function WaveService.summon()
-	if not waveBusy then
-		warningSent = true
-		task.spawn(function()
-			local ok, err = pcall(WaveService.runWave)
-			if not ok then
-				warn("[WaveService] wave failed: " .. tostring(err))
-				-- Never leave the wave stuck on: reset so the next 90s round
-				-- still fires even if a decorative part failed.
-				waveBusy = false
-				warningSent = false
-				nextWaveAt = os.clock() + Config.WAVE_INTERVAL
-				setWaveAttributes(Config.WAVE_INTERVAL, false, false)
-				local waves = Workspace:FindFirstChild("Waves")
-				if waves then
-					waves:ClearAllChildren()
-				end
-			end
-		end)
+	if state.busy or not state.running then
+		return
 	end
-end
-
-local function countdownLoop()
+	state.nextAt = 0
 	task.spawn(function()
-		while true do
-			local now = os.clock()
-			local left = math.max(0, nextWaveAt - now)
-			if not waveBusy then
-				local warning = left <= Config.WAVE_WARN and left > 0
-				setWaveAttributes(left, warning, false)
-				if warning and not warningSent then
-					warningSent = true
-					Util.fireAll(deps.Remotes.FX, {
-						kind = "waveWarning",
-						seconds = Config.WAVE_WARN,
-					})
-					Util.broadcastToast(deps.Remotes, "WAVE IN 5 SECONDS — GET HOME!", "bad", 5)
-				end
-				if left <= 0 then
-					WaveService.summon()
-				end
+		local ok, err = pcall(WaveService.runWave)
+		if not ok then
+			warn("[WaveService] summon failed: " .. tostring(err))
+			state.busy = false
+			local folder = Workspace:FindFirstChild("Waves")
+			if folder then
+				folder:ClearAllChildren()
 			end
-			task.wait(0.25)
+			resetAfterWave()
 		end
 	end)
 end
 
-function WaveService.init(services: any)
+local function tick()
+	local now = os.clock()
+	if state.busy then
+		return
+	end
+	local left = math.max(0, state.nextAt - now)
+	local warning = left <= Config.WAVE_WARN and left > 0
+	publish(left, warning, false)
+	if warning and not state.warningSent then
+		state.warningSent = true
+		Util.fireAll(deps.Remotes.FX, { kind = "waveWarning", seconds = Config.WAVE_WARN })
+		Util.broadcastToast(deps.Remotes, string.format("WAVE IN %d SECONDS — GET HOME!", Config.WAVE_WARN), "bad", Config.TOAST.long)
+	end
+	if left <= 0 then
+		WaveService.summon()
+	end
+end
+
+function WaveService.start(services: any)
 	deps = services
-	Util = services.Util
 	Config = services.Config
-	waveBusy = false
-	warningSent = false
-	waveCount = 0
-	nextWaveAt = os.clock() + Config.WAVE_INTERVAL
-	setWaveAttributes(Config.WAVE_INTERVAL, false, false)
-	countdownLoop()
+	Util = services.Util
+
+	state.running = true
+	state.busy = false
+	state.warningSent = false
+	state.count = 0
+	state.safeNoticed = {}
+	state.nextAt = os.clock() + Config.WAVE_INTERVAL
+	publish(Config.WAVE_INTERVAL, false, false)
+
+	task.spawn(function()
+		while state.running do
+			local ok, err = pcall(tick)
+			if not ok then
+				warn("[WaveService] timer tick failed: " .. tostring(err))
+			end
+			task.wait(0.25)
+		end
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		state.safeNoticed[player] = nil
+	end)
+end
+
+function WaveService.stop()
+	state.running = false
+	state.busy = false
+	local folder = Workspace:FindFirstChild("Waves")
+	if folder then
+		folder:ClearAllChildren()
+	end
 end
 
 return WaveService

@@ -1,50 +1,57 @@
 --!strict
--- OnboardingService: owns the five-step first-join tutorial. It listens to real
--- server progress (movement polled from the character, grab/bank/rebirth calls
--- from the services, and a validated Index-open remote), ticks objectives live,
--- and remembers completion per player through DataService. The skip button is
--- also server-validated and persisted.
+-- OnboardingService — the five-step first-join tutorial.
+--
+-- Progress is driven by real server facts: movement is sampled from the
+-- character, grab/bank/rebirth come from the services that perform them, and
+-- the Index step only ticks from a validated TutorialAction("index"). Skipping
+-- is also server-validated and persisted, so it never reappears on rejoin.
 
 local Players = game:GetService("Players")
 
 local OnboardingService = {}
 
+local Config: any = nil
+local Util: any = nil
 local deps: any = nil
-local states: { [Player]: any } = {}
-local lastActionAt: { [Player]: number } = {}
 
-local OBJECTIVES = {
-	{ key = "move", label = "Move around the plaza" },
-	{ key = "grab", label = "Grab a wild brainrot" },
-	{ key = "bank", label = "Bank it on your base pad" },
-	{ key = "index", label = "Open the Brainrot Index (E)" },
-	{ key = "rebirth", label = "Rebirth once ($500)" },
+local state = {
+	running = false,
+	players = {} :: { [Player]: any },
+	lastActionAt = {} :: { [Player]: number },
 }
 
-local function buildState(done: boolean): any
-	return {
-		done = done,
-		objectives = {},
-	}
+local function alive(player: Player?): boolean
+	return player ~= nil and player.Parent ~= nil
 end
 
-local function findObjective(key: string): any
-	for _, objective in ipairs(OBJECTIVES) do
-		if objective.key == key then
-			return objective
+local function blankStatus(done: boolean): any
+	local objectives = {}
+	for _, step in ipairs(Config.TUTORIAL) do
+		table.insert(objectives, { key = step.key, label = step.label, done = done })
+	end
+	return { done = done, objectives = objectives }
+end
+
+local function allComplete(status: any): boolean
+	for _, objective in ipairs(status.objectives) do
+		if not objective.done then
+			return false
 		end
 	end
-	return nil
+	return true
 end
 
-local function complete(player: Player, state: any)
-	state.done = true
+local function finish(player: Player, status: any)
+	status.done = true
+	for _, objective in ipairs(status.objectives) do
+		objective.done = true
+	end
 	deps.DataService.setTutorialDone(player, true)
 	pcall(function()
 		deps.DataService.save(player)
 	end)
-	deps.Util.toast(deps.Remotes, player, "Tutorial complete! The whole map is yours — press E for the Index, B for the Shop.", "good", 6)
-	deps.Util.fireClient(deps.Remotes.FX, player, {
+	Util.toast(deps.Remotes, player, "Tutorial complete! The whole map is yours — press E for the Index, B for the Shop.", "good", 6)
+	Util.fireClient(deps.Remotes.FX, player, {
 		kind = "quest",
 		text = "TUTORIAL COMPLETE",
 		position = deps.BaseService.getPadCenter(player) + Vector3.new(0, 7, 0),
@@ -56,51 +63,41 @@ end
 
 function OnboardingService.onPlayerAdded(player: Player)
 	local done = deps.DataService.isTutorialDone(player)
-	local state = buildState(done)
-	for _, objective in ipairs(OBJECTIVES) do
-		table.insert(state.objectives, {
-			key = objective.key,
-			label = objective.label,
-			done = done,
-		})
-	end
-	states[player] = state
-	lastActionAt[player] = 0
+	state.players[player] = blankStatus(done)
+	state.lastActionAt[player] = 0
 end
 
 function OnboardingService.getState(player: Player): any
-	if not states[player] then
+	if not state.players[player] then
 		OnboardingService.onPlayerAdded(player)
 	end
-	return states[player]
+	return state.players[player]
 end
 
 function OnboardingService.progress(player: Player, key: string)
-	local state = states[player]
-	if not state or state.done or type(key) ~= "string" then
+	if not player or type(key) ~= "string" then
 		return
 	end
+	local status = state.players[player]
+	if not status or status.done then
+		return
+	end
+
 	local changed = false
-	for _, objective in ipairs(state.objectives) do
+	for _, objective in ipairs(status.objectives) do
 		if objective.key == key and not objective.done then
 			objective.done = true
 			changed = true
-			deps.Util.toast(deps.Remotes, player, "Tutorial: " .. objective.label .. " ✓", "good", 3)
+			Util.toast(deps.Remotes, player, "Tutorial: " .. objective.label .. " ✓", "good", Config.TOAST.short)
 			break
 		end
 	end
 	if not changed then
 		return
 	end
-	local allDone = true
-	for _, objective in ipairs(state.objectives) do
-		if not objective.done then
-			allDone = false
-			break
-		end
-	end
-	if allDone then
-		complete(player, state)
+
+	if allComplete(status) then
+		finish(player, status)
 	else
 		pcall(function()
 			deps.StateService.push(player)
@@ -109,51 +106,85 @@ function OnboardingService.progress(player: Player, key: string)
 end
 
 function OnboardingService.skip(player: Player)
-	local state = states[player]
-	if not state or state.done then
+	local status = state.players[player]
+	if not status or status.done then
 		return
 	end
-	state.done = true
+	status.done = true
 	deps.DataService.setTutorialDone(player, true)
 	pcall(function()
 		deps.DataService.save(player)
 	end)
-	deps.Util.toast(deps.Remotes, player, "Tutorial skipped. Press E for the Index and B for the Shop.", "info", 4)
+	Util.toast(deps.Remotes, player, "Tutorial skipped. Press E for the Index and B for the Shop.", "info", Config.TOAST.normal)
 	pcall(function()
 		deps.StateService.push(player)
 	end)
 end
 
-function OnboardingService.handleAction(player: Player, action: any)
-	if type(action) ~= "string" or #action > 8 then
-		return
-	end
-	local now = os.clock()
-	if now - (lastActionAt[player] or 0) < 0.5 then
-		return
-	end
-	lastActionAt[player] = now
-	if action == "skip" then
+-- Only these three actions are legal on the TutorialAction remote.
+local ACTIONS = {
+	skip = function(player: Player)
 		OnboardingService.skip(player)
-	elseif action == "index" then
+	end,
+	index = function(player: Player)
 		OnboardingService.progress(player, "index")
-	elseif action == "hello" then
-		-- A late-binding HUD asks for a snapshot after its remotes are ready.
+	end,
+	hello = function(player: Player)
+		-- The HUD asks for one snapshot after its remotes are bound.
 		pcall(function()
 			deps.StateService.push(player)
 		end)
+	end,
+}
+
+function OnboardingService.handleAction(player: Player, action: any)
+	if not alive(player) or type(action) ~= "string" or #action > 8 then
+		return
+	end
+	local now = os.clock()
+	if now - (state.lastActionAt[player] or 0) < Config.LIMITS.tutorial then
+		return
+	end
+	state.lastActionAt[player] = now
+	local handler = ACTIONS[action]
+	if handler then
+		handler(player)
 	end
 end
 
 function OnboardingService.releasePlayer(player: Player)
-	states[player] = nil
-	lastActionAt[player] = nil
+	state.players[player] = nil
+	state.lastActionAt[player] = nil
 end
 
-function OnboardingService.init(services: any)
+local function movementLoop()
+	task.spawn(function()
+		while state.running do
+			task.wait(1)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local status = state.players[player]
+				if status and not status.done then
+					local character = player.Character
+					local root = character and character:FindFirstChild("HumanoidRootPart")
+					if root and root:IsA("BasePart") then
+						if Util.flatDistance(root.Position, Config.MAP.spawnPos) > Config.TUTORIAL_MOVE_STUDS then
+							OnboardingService.progress(player, "move")
+						end
+					end
+				end
+			end
+		end
+	end)
+end
+
+function OnboardingService.start(services: any)
 	deps = services
-	states = {}
-	lastActionAt = {}
+	Config = services.Config
+	Util = services.Util
+
+	state.running = true
+	state.players = {}
+	state.lastActionAt = {}
 
 	local remote = deps.Remotes and deps.Remotes.TutorialAction
 	if remote then
@@ -162,28 +193,17 @@ function OnboardingService.init(services: any)
 		end)
 	end
 
-	-- Server-side movement detection: distance from spawn, not a client claim.
-	task.spawn(function()
-		while true do
-			task.wait(1)
-			for _, player in ipairs(Players:GetPlayers()) do
-				local state = states[player]
-				if state and not state.done then
-					local character = player.Character
-					local hrp = character and character:FindFirstChild("HumanoidRootPart")
-					if hrp and hrp:IsA("BasePart") then
-						if deps.Util.flatDistance(hrp.Position, deps.Config.MAP.spawnPos) > 14 then
-							OnboardingService.progress(player, "move")
-						end
-					end
-				end
-			end
-		end
-	end)
+	movementLoop()
 
 	Players.PlayerRemoving:Connect(function(player)
 		OnboardingService.releasePlayer(player)
 	end)
+end
+
+function OnboardingService.stop()
+	state.running = false
+	state.players = {}
+	state.lastActionAt = {}
 end
 
 return OnboardingService

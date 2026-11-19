@@ -1,27 +1,35 @@
 --!strict
--- DataService: owns per-player persistence. It loads and saves the profile
--- (captured index, permanent upgrades, best total earned, tutorial completion)
--- through DataStoreService, and mirrors the best total into an OrderedDataStore
--- so the leaderboard can show all-time records when DataStores are available.
--- Every DataStore call is pcall-guarded: in Studio with API access off the game
--- still runs and simply keeps profiles in memory for the session.
+-- DataService — persistence for everything that must survive a server.
+--
+-- Stores one profile per player (captured Index, permanent upgrade levels, best
+-- total earned, rebirths, tutorial flag) in a DataStore, and mirrors the best
+-- total into an OrderedDataStore for the all-time board. Every call is wrapped
+-- in pcall: when DataStores are unavailable (Studio without API access, an
+-- outage) the game still runs and simply keeps profiles in memory.
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 
 local DataService = {}
 
+local Config: any = nil
 local deps: any = nil
-local profiles: { [Player]: any } = {}
-local loaded: { [Player]: boolean } = {}
-local allTime: { [number]: any } = {}
-local profileStore: any = nil
-local cashStore: any = nil
-local storeReady = false
-local allTimeFetched = false
-local lastSavedAt: { [Player]: number } = {}
 
-local function defaultProfile(): any
+local state = {
+	running = false,
+	profiles = {} :: { [Player]: any },
+	allTime = {} :: { [number]: any },
+	profileStore = nil :: any,
+	totalStore = nil :: any,
+	storesOnline = false,
+	allTimePulled = false,
+	lastSaveAt = {} :: { [Player]: number },
+}
+
+local PROFILE_PREFIX = "profile_"
+local MAX_UPGRADE_LEVEL = 5
+
+local function blankProfile(): any
 	return {
 		index = {},
 		bestTotal = 0,
@@ -32,8 +40,8 @@ local function defaultProfile(): any
 	}
 end
 
-local function validUpgrade(key: string): boolean
-	for _, track in ipairs(deps.Config.UPGRADES) do
+local function isKnownUpgrade(key: string): boolean
+	for _, track in ipairs(Config.UPGRADES) do
 		if track.key == key then
 			return true
 		end
@@ -41,11 +49,13 @@ local function validUpgrade(key: string): boolean
 	return false
 end
 
+-- Anything from a DataStore is untrusted: rebuild it field by field.
 local function sanitize(raw: any): any
-	local profile = defaultProfile()
+	local profile = blankProfile()
 	if type(raw) ~= "table" then
 		return profile
 	end
+
 	if type(raw.index) == "table" then
 		for id, count in pairs(raw.index) do
 			if type(id) == "string" and type(count) == "number" then
@@ -56,13 +66,15 @@ local function sanitize(raw: any): any
 			end
 		end
 	end
+
 	if type(raw.upgrades) == "table" then
 		for key, level in pairs(raw.upgrades) do
-			if type(key) == "string" and type(level) == "number" and validUpgrade(key) then
-				profile.upgrades[key] = math.clamp(math.floor(level), 0, 5)
+			if type(key) == "string" and type(level) == "number" and isKnownUpgrade(key) then
+				profile.upgrades[key] = math.clamp(math.floor(level), 0, MAX_UPGRADE_LEVEL)
 			end
 		end
 	end
+
 	profile.bestTotal = math.max(0, tonumber(raw.bestTotal) or 0)
 	profile.rebirths = math.max(0, math.floor(tonumber(raw.rebirths) or 0))
 	profile.tutorialDone = raw.tutorialDone == true
@@ -70,29 +82,31 @@ local function sanitize(raw: any): any
 	return profile
 end
 
-local function noteAllTime(player: Player, fresh: boolean)
-	local profile = profiles[player]
+local function rememberAllTime(player: Player, fresh: boolean)
+	local profile = state.profiles[player]
 	if not profile then
 		return
 	end
 	local userId = player.UserId
-	local existing = allTime[userId]
-	if not existing or fresh or profile.bestTotal >= (existing.cash or 0) then
-		allTime[userId] = {
-			name = player.DisplayName,
-			cash = math.max(profile.bestTotal or 0, existing and existing.cash or 0),
-			rebirths = math.max(profile.rebirths or 0, existing and existing.rebirths or 0),
-		}
+	local previous = state.allTime[userId]
+	if previous and not fresh and profile.bestTotal < (previous.cash or 0) then
+		profile.bestTotal = previous.cash
 	end
+	state.allTime[userId] = {
+		name = player.DisplayName,
+		cash = math.max(profile.bestTotal or 0, previous and previous.cash or 0),
+		rebirths = math.max(profile.rebirths or 0, previous and previous.rebirths or 0),
+	}
 end
 
-local function fetchAllTime()
-	if allTimeFetched or not storeReady or not cashStore then
+local function pullAllTime()
+	if state.allTimePulled or not state.storesOnline or not state.totalStore then
 		return
 	end
-	allTimeFetched = true
+	state.allTimePulled = true
+
 	local ok, pages = pcall(function()
-		return cashStore:GetSortedAsync(false, 10)
+		return state.totalStore:GetSortedAsync(false, Config.LEADERBOARD_ROWS * 3)
 	end)
 	if not ok or not pages then
 		return
@@ -104,15 +118,16 @@ local function fetchAllTime()
 		return
 	end
 	for _, entry in ipairs(entries) do
-		if type(entry) == "table" and entry.key and entry.value then
+		if type(entry) == "table" and entry.key then
 			local userId = tonumber(entry.key)
-			if userId then
-				local existing = allTime[userId]
-				if not existing or (tonumber(entry.value) or 0) > (existing.cash or 0) then
-					allTime[userId] = {
-						name = existing and existing.name or ("PLAYER " .. tostring(userId)),
-						cash = tonumber(entry.value) or 0,
-						rebirths = existing and existing.rebirths or 0,
+			local cash = tonumber(entry.value) or 0
+			if userId and cash > 0 then
+				local known = state.allTime[userId]
+				if not known or cash > (known.cash or 0) then
+					state.allTime[userId] = {
+						name = known and known.name or ("PLAYER " .. tostring(userId)),
+						cash = cash,
+						rebirths = known and known.rebirths or 0,
 					}
 				end
 			end
@@ -120,35 +135,38 @@ local function fetchAllTime()
 	end
 end
 
+-- Public API ---------------------------------------------------------------
+
 function DataService.getProfile(player: Player): any
-	return profiles[player]
+	return state.profiles[player]
 end
 
 function DataService.load(player: Player): any
-	if profiles[player] then
-		return profiles[player]
+	if state.profiles[player] then
+		return state.profiles[player]
 	end
-	local profile = defaultProfile()
-	if storeReady and profileStore then
+
+	local profile = blankProfile()
+	if state.storesOnline and state.profileStore then
 		local ok, raw = pcall(function()
-			return profileStore:GetAsync("profile_" .. tostring(player.UserId))
+			return state.profileStore:GetAsync(PROFILE_PREFIX .. tostring(player.UserId))
 		end)
 		if ok and raw ~= nil then
 			profile = sanitize(raw)
 		elseif not ok then
-			warn("[DataService] profile load failed; using a fresh profile for " .. player.Name)
+			warn("[DataService] profile load failed; starting fresh for " .. player.Name)
 		end
 	end
-	profiles[player] = profile
-	loaded[player] = true
-	lastSavedAt[player] = nil
-	noteAllTime(player, true)
-	fetchAllTime()
+
+	state.profiles[player] = profile
+	state.lastSaveAt[player] = nil
+	rememberAllTime(player, true)
+	pullAllTime()
 	return profile
 end
 
 function DataService.recordCapture(player: Player, id: string): number
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	if not profile or type(id) ~= "string" then
 		return 0
 	end
@@ -158,65 +176,67 @@ function DataService.recordCapture(player: Player, id: string): number
 end
 
 function DataService.getIndex(player: Player): { [string]: number }
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	return profile and profile.index or {}
 end
 
 function DataService.setTutorialDone(player: Player, done: boolean)
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	if profile then
 		profile.tutorialDone = done == true
 	end
 end
 
 function DataService.isTutorialDone(player: Player): boolean
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	return profile ~= nil and profile.tutorialDone == true
 end
 
 function DataService.getUpgrades(player: Player): { [string]: number }
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	return profile and profile.upgrades or {}
 end
 
 function DataService.getBestTotal(player: Player): number
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	return profile and profile.bestTotal or 0
 end
 
 function DataService.updateBest(player: Player, total: number, rebirths: number)
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	if not profile or not player.Parent then
 		return
 	end
 	profile.bestTotal = math.max(profile.bestTotal or 0, math.floor(tonumber(total) or 0))
 	profile.rebirths = math.max(profile.rebirths or 0, math.floor(tonumber(rebirths) or 0))
-	local entry = allTime[player.UserId]
-	allTime[player.UserId] = {
+	local known = state.allTime[player.UserId]
+	state.allTime[player.UserId] = {
 		name = player.DisplayName,
-		cash = math.max(profile.bestTotal, entry and entry.cash or 0),
-		rebirths = math.max(profile.rebirths, entry and entry.rebirths or 0),
+		cash = math.max(profile.bestTotal, known and known.cash or 0),
+		rebirths = math.max(profile.rebirths, known and known.rebirths or 0),
 	}
 end
 
 function DataService.getAllTime(): { [number]: any }
-	return allTime
+	return state.allTime
 end
 
 function DataService.save(player: Player)
-	local profile = profiles[player]
+	local profile = state.profiles[player]
 	if not profile then
 		return
 	end
-	noteAllTime(player, true)
-	if not storeReady then
+	rememberAllTime(player, true)
+	if not state.storesOnline then
 		return
 	end
+
 	local now = os.clock()
-	if now - (lastSavedAt[player] or -1000) < 2 then
+	if now - (state.lastSaveAt[player] or -1000) < 2 then
 		return
 	end
-	lastSavedAt[player] = now
+	state.lastSaveAt[player] = now
+
 	local snapshot = {
 		index = profile.index,
 		bestTotal = profile.bestTotal,
@@ -225,37 +245,49 @@ function DataService.save(player: Player)
 		upgrades = profile.upgrades,
 		savedAt = os.time(),
 	}
-	if profileStore then
+
+	if state.profileStore then
 		local ok, err = pcall(function()
-			profileStore:SetAsync("profile_" .. tostring(player.UserId), snapshot)
+			state.profileStore:SetAsync(PROFILE_PREFIX .. tostring(player.UserId), snapshot)
 		end)
 		if not ok then
 			warn("[DataService] profile save failed: " .. tostring(err))
 		end
 	end
-	if cashStore then
+	if state.totalStore then
 		pcall(function()
-			cashStore:SetAsync(tostring(player.UserId), math.max(0, math.floor(profile.bestTotal)))
+			state.totalStore:SetAsync(tostring(player.UserId), math.max(0, math.floor(profile.bestTotal)))
 		end)
 	end
 end
 
-function DataService.init(services: any)
+-- Lifecycle ----------------------------------------------------------------
+
+function DataService.start(services: any)
 	deps = services
+	Config = services.Config
+
+	state.running = true
+	state.profiles = {}
+	state.allTime = {}
+	state.lastSaveAt = {}
+	state.allTimePulled = false
+	state.storesOnline = false
+
 	pcall(function()
-		profileStore = DataStoreService:GetDataStore("BrainrotCashRush_Profiles_v2")
-		cashStore = DataStoreService:GetOrderedDataStore("BrainrotCashRush_BestTotal_v2")
-		storeReady = profileStore ~= nil and cashStore ~= nil
+		state.profileStore = DataStoreService:GetDataStore("BrainrotCashRush_Profiles_v2")
+		state.totalStore = DataStoreService:GetOrderedDataStore("BrainrotCashRush_BestTotal_v2")
+		state.storesOnline = state.profileStore ~= nil and state.totalStore ~= nil
 	end)
-	if storeReady then
-		print("[DataService] DataStores online")
-	else
-		print("[DataService] DataStores unavailable; using in-memory profiles this session")
-	end
-	fetchAllTime()
+	print(state.storesOnline and "[DataService] DataStores online" or "[DataService] DataStores unavailable; in-memory profiles this session")
+
+	pullAllTime()
 
 	pcall(function()
 		game:BindToClose(function()
+			if not state.running then
+				return
+			end
 			for _, player in ipairs(Players:GetPlayers()) do
 				pcall(function()
 					DataService.save(player)
@@ -265,11 +297,10 @@ function DataService.init(services: any)
 		end)
 	end)
 
-	-- Periodic autosave so a server crash loses at most a minute of Index and
-	-- best-total progress, not the whole session.
+	-- Autosave: a crash can cost at most one interval of Index/best progress.
 	task.spawn(function()
-		while true do
-			task.wait(deps.Config.SAVE_INTERVAL or 60)
+		while state.running do
+			task.wait(Config.SAVE_INTERVAL)
 			for _, player in ipairs(Players:GetPlayers()) do
 				pcall(function()
 					DataService.save(player)
@@ -277,6 +308,16 @@ function DataService.init(services: any)
 			end
 		end
 	end)
+end
+
+function DataService.stop()
+	state.running = false
+	for _, player in ipairs(Players:GetPlayers()) do
+		pcall(function()
+			DataService.save(player)
+		end)
+	end
+	state.profiles = {}
 end
 
 return DataService

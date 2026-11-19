@@ -1,21 +1,31 @@
 --!strict
--- UpgradeService: owns the six five-level shop tracks. It stores each player's
--- levels (persisted by DataService), validates every purchase request on the
--- server, deducts cash atomically and exposes the authoritative effect numbers
--- (carry cap, pad slots, income multiplier, guard radius, walkspeed, magnet
--- radius) that BrainrotService, BaseService and the HUD read. The client can
--- only ask to buy a track key; it never sends a price or a level.
+-- UpgradeService — the six permanent shop tracks.
+--
+-- The server owns levels, prices and effects. A client may only send a track
+-- key; the price is looked up here, cash is debited atomically, and only then
+-- is the level written. The getters below are the single source of truth other
+-- services use for caps, radius, speed and income multipliers.
 
 local Players = game:GetService("Players")
 
 local UpgradeService = {}
 
+local Config: any = nil
+local Util: any = nil
 local deps: any = nil
-local levels: { [Player]: { [string]: number } } = {}
-local lastBuyAt: { [Player]: number } = {}
 
-local function track(key: string): any
-	for _, entry in ipairs(deps.Config.UPGRADES) do
+local state = {
+	running = false,
+	levels = {} :: { [Player]: { [string]: number } },
+	lastBuyAt = {} :: { [Player]: number },
+}
+
+local function alive(player: Player?): boolean
+	return player ~= nil and player.Parent ~= nil
+end
+
+local function trackFor(key: string): any
+	for _, entry in ipairs(Config.UPGRADES) do
 		if entry.key == key then
 			return entry
 		end
@@ -24,18 +34,20 @@ local function track(key: string): any
 end
 
 local function levelOf(player: Player, key: string): number
-	local map = levels[player]
-	local level = map and map[key] or 0
-	return math.clamp(math.floor(tonumber(level) or 0), 0, 5)
+	local map = state.levels[player]
+	local raw = map and map[key] or 0
+	return math.clamp(math.floor(tonumber(raw) or 0), 0, Config.MAX_UPGRADE_LEVEL)
 end
 
 local function effectOf(player: Player, key: string): number
-	local entry = track(key)
-	if not entry then
+	local track = trackFor(key)
+	if not track then
 		return 0
 	end
-	return entry.base + entry.perLevel * levelOf(player, key)
+	return track.base + track.perLevel * levelOf(player, key)
 end
+
+-- Public effect getters ----------------------------------------------------
 
 function UpgradeService.getLevel(player: Player, key: string): number
 	return levelOf(player, key)
@@ -65,26 +77,28 @@ function UpgradeService.getMagnetRadius(player: Player): number
 	return effectOf(player, "Magnet")
 end
 
--- Price for the next level, or nil when the track is maxed.
+-- Next price, or nil when the track is maxed. This is what the HUD displays
+-- and what tryBuy actually charges — one lookup, no client-side price.
 function UpgradeService.getPrice(player: Player, key: string): number?
-	local entry = track(key)
-	if not entry then
+	local track = trackFor(key)
+	if not track then
 		return nil
 	end
-	local nextLevel = levelOf(player, key) + 1
-	return entry.prices[nextLevel]
+	return track.prices[levelOf(player, key) + 1]
 end
 
 function UpgradeService.getAllLevels(player: Player): { [string]: number }
 	local out = {}
-	for _, entry in ipairs(deps.Config.UPGRADES) do
-		out[entry.key] = levelOf(player, entry.key)
+	for _, track in ipairs(Config.UPGRADES) do
+		out[track.key] = levelOf(player, track.key)
 	end
 	return out
 end
 
+-- Application --------------------------------------------------------------
+
 local function applySpeed(player: Player)
-	if not player or not player.Parent then
+	if not alive(player) then
 		return
 	end
 	local character = player.Character
@@ -102,75 +116,86 @@ local function applyAll(player: Player)
 	end)
 end
 
+local function connectCharacter(player: Player)
+	player.CharacterAdded:Connect(function()
+		task.wait(0.1)
+		applySpeed(player)
+	end)
+end
+
 function UpgradeService.onPlayerAdded(player: Player)
 	local stored = deps.DataService.getUpgrades(player)
 	local map = {}
-	for _, entry in ipairs(deps.Config.UPGRADES) do
-		map[entry.key] = math.clamp(math.floor(tonumber(stored[entry.key]) or 0), 0, 5)
+	for _, track in ipairs(Config.UPGRADES) do
+		map[track.key] = math.clamp(math.floor(tonumber(stored[track.key]) or 0), 0, Config.MAX_UPGRADE_LEVEL)
 	end
-	levels[player] = map
+	state.levels[player] = map
 	applySpeed(player)
 end
 
+local function describeEffect(key: string, value: number): string
+	local track = trackFor(key)
+	local unit = track and track.unit or ""
+	if key == "Income" then
+		return string.format("x%.2f", value)
+	end
+	return string.format("%.1f%s", value, unit)
+end
+
 function UpgradeService.tryBuy(player: Player, key: any)
-	if not player or not player.Parent then
+	if not alive(player) or type(key) ~= "string" then
 		return
 	end
-	if type(key) ~= "string" then
+	local track = trackFor(key)
+	if not track then
+		Util.toast(deps.Remotes, player, "Unknown upgrade.", "bad", Config.TOAST.short)
 		return
 	end
-	local entry = track(key)
-	if not entry then
-		deps.Util.toast(deps.Remotes, player, "Unknown upgrade.", "bad", 2.5)
-		return
-	end
+
 	local now = os.clock()
-	if now - (lastBuyAt[player] or 0) < 0.4 then
+	if now - (state.lastBuyAt[player] or 0) < Config.LIMITS.shopBuy then
 		return
 	end
-	lastBuyAt[player] = now
+	state.lastBuyAt[player] = now
 
 	local current = levelOf(player, key)
-	if current >= #entry.prices then
-		deps.Util.toast(deps.Remotes, player, entry.name .. " is already max level.", "info", 3)
-		return
-	end
-	local price = entry.prices[current + 1]
-	local cash = deps.PlayerService.getCash(player)
-	if cash < price then
-		deps.Util.toast(deps.Remotes, player, string.format("%s costs $%s — you have $%s.", entry.name, deps.Util.commaNumber(price), deps.Util.commaNumber(cash)), "bad", 3.5)
+	if current >= #track.prices then
+		Util.toast(deps.Remotes, player, track.name .. " is already max level.", "info", Config.TOAST.short)
 		return
 	end
 
+	local price = track.prices[current + 1]
+	local cash = deps.PlayerService.getCash(player)
+	if cash < price then
+		Util.toast(deps.Remotes, player, string.format("%s costs $%s — you have $%s.", track.name, Util.commaNumber(price), Util.commaNumber(cash)), "bad", Config.TOAST.normal)
+		return
+	end
 	if not deps.PlayerService.spendCash(player, price) then
 		return
 	end
-	local map = levels[player]
+
+	local map = state.levels[player]
 	if not map then
 		map = {}
-		levels[player] = map
+		state.levels[player] = map
 	end
 	map[key] = current + 1
 
+	-- Keep the persisted profile in step with the live map.
 	local profile = deps.DataService.getProfile(player)
 	if profile then
 		profile.upgrades[key] = current + 1
 	end
 	applyAll(player)
 
-	local effect = effectOf(player, key)
-	local effectText = tostring(effect)
-	if key == "Income" then
-		effectText = string.format("x%.2f", effect)
-	elseif key == "GuardRange" or key == "Magnet" then
-		effectText = string.format("%.1f studs", effect)
-	end
-	deps.Util.toast(deps.Remotes, player, string.format("%s → Lv %d/%d! %s %s.", entry.name, current + 1, #entry.prices, entry.effectLabel, effectText), "good", 4.5)
-	deps.Util.fireClient(deps.Remotes.FX, player, {
+	local effect = describeEffect(key, effectOf(player, key))
+	Util.toast(deps.Remotes, player, string.format("%s → Lv %d/%d! %s %s.", track.name, current + 1, #track.prices, track.effectLabel, effect), "good", Config.TOAST.normal)
+	Util.fireClient(deps.Remotes.FX, player, {
 		kind = "upgrade",
 		position = deps.BaseService.getPadCenter(player) + Vector3.new(0, 5, 0),
-		text = entry.name .. " LV " .. tostring(current + 1),
+		text = track.name .. " LV " .. tostring(current + 1),
 	})
+
 	pcall(function()
 		deps.StateService.push(player)
 	end)
@@ -180,34 +205,40 @@ function UpgradeService.tryBuy(player: Player, key: any)
 end
 
 function UpgradeService.releasePlayer(player: Player)
-	levels[player] = nil
-	lastBuyAt[player] = nil
+	state.levels[player] = nil
+	state.lastBuyAt[player] = nil
 end
 
-function UpgradeService.init(services: any)
+-- Lifecycle ----------------------------------------------------------------
+
+function UpgradeService.start(services: any)
 	deps = services
-	levels = {}
-	lastBuyAt = {}
+	Config = services.Config
+	Util = services.Util
+
+	state.running = true
+	state.levels = {}
+	state.lastBuyAt = {}
 
 	local remote = deps.Remotes and deps.Remotes.ShopBuy
 	if remote then
 		remote.OnServerEvent:Connect(function(player, key)
-			UpgradeService.tryBuy(player, key)
+			if type(key) == "string" then
+				UpgradeService.tryBuy(player, key)
+			end
 		end)
 	end
 
-	Players.PlayerAdded:Connect(function(player)
-		player.CharacterAdded:Connect(function()
-			task.wait(0.1)
-			applySpeed(player)
-		end)
-	end)
+	Players.PlayerAdded:Connect(connectCharacter)
 	for _, player in ipairs(Players:GetPlayers()) do
-		player.CharacterAdded:Connect(function()
-			task.wait(0.1)
-			applySpeed(player)
-		end)
+		connectCharacter(player)
 	end
+end
+
+function UpgradeService.stop()
+	state.running = false
+	state.levels = {}
+	state.lastBuyAt = {}
 end
 
 return UpgradeService

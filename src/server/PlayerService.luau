@@ -1,45 +1,65 @@
--- PlayerService: owns the player's persistent round state (cash, rebirths,
--- multiplier), the leaderstats the HUD reads, character setup, pad assignment
--- on join and the rebirth RemoteEvent. Every number is decided here or in a
--- service it calls; the client only asks for a rebirth.
+--!strict
+-- PlayerService — per-player round state and the only path that can rebirth.
+--
+-- It owns cash balances, the leaderstats mirror, character setup, pad claiming
+-- on join and the ordered shutdown of every per-player service on leave.
+-- Cash is kept in a server table (not in a client value), and every mutation
+-- goes through setCash/addCash/spendCash so the leaderstats, attributes and
+-- the leaderboard stay in sync.
 
 local Players = game:GetService("Players")
 
 local PlayerService = {}
 
+local Config: any = nil
+local Util: any = nil
 local deps: any = nil
-local balances: { [Player]: number } = {}
-local initialized: { [Player]: boolean } = {}
 
-local function leaderstat(player: Player, name: string, className: string): any
-	local folder = player:FindFirstChild("leaderstats")
-	if not folder then
-		return nil
-	end
-	return folder:FindFirstChild(name)
+local state = {
+	running = false,
+	balances = {} :: { [Player]: number },
+	joined = {} :: { [Player]: boolean },
+	lastRebirthAt = {} :: { [Player]: number },
+	characterLinks = {} :: { [Player]: { RBXScriptConnection } },
+}
+
+local function alive(player: Player?): boolean
+	return player ~= nil and player.Parent ~= nil
 end
 
+local function readStat(player: Player, name: string): any
+	local folder = player:FindFirstChild("leaderstats")
+	return folder and folder:FindFirstChild(name) or nil
+end
+
+-- Push the authoritative numbers into leaderstats and attributes in one place.
 local function publish(player: Player)
-	if not player.Parent then
+	if not alive(player) then
 		return
 	end
-	local cash = leaderstat(player, "Cash", "IntValue")
-	local rebirths = leaderstat(player, "Rebirths", "IntValue")
-	local multiplier = leaderstat(player, "Multiplier", "NumberValue")
-	if cash then
-		cash.Value = math.floor(balances[player] or 0)
+	local cash = math.floor(state.balances[player] or 0)
+	local rebirth = math.floor(tonumber(player:GetAttribute("Rebirths")) or 0)
+	local multiplier = tonumber(player:GetAttribute("Multiplier")) or 1
+
+	local cashValue = readStat(player, "Cash")
+	if cashValue and cashValue:IsA("IntValue") then
+		cashValue.Value = cash
 	end
-	if rebirths then
-		rebirths.Value = player:GetAttribute("Rebirths") or 0
+	local rebirthValue = readStat(player, "Rebirths")
+	if rebirthValue and rebirthValue:IsA("IntValue") then
+		rebirthValue.Value = rebirth
 	end
-	if multiplier then
-		multiplier.Value = player:GetAttribute("Multiplier") or 1
+	local multiplierValue = readStat(player, "Multiplier")
+	if multiplierValue and multiplierValue:IsA("NumberValue") then
+		multiplierValue.Value = multiplier
 	end
-	player:SetAttribute("Cash", math.floor(balances[player] or 0))
+	player:SetAttribute("Cash", cash)
 end
 
+-- Public money API ---------------------------------------------------------
+
 function PlayerService.getCash(player: Player): number
-	return math.floor(balances[player] or 0)
+	return math.floor(state.balances[player] or 0)
 end
 
 function PlayerService.getMultiplier(player: Player): number
@@ -51,76 +71,87 @@ function PlayerService.getRebirths(player: Player): number
 end
 
 function PlayerService.setCash(player: Player, amount: number)
-	if not player.Parent then
+	if not alive(player) then
 		return
 	end
-	balances[player] = math.max(0, tonumber(amount) or 0)
+	state.balances[player] = math.max(0, tonumber(amount) or 0)
 	publish(player)
 end
 
 function PlayerService.addCash(player: Player, amount: number)
-	if not player.Parent then
+	if not alive(player) then
 		return
 	end
-	if amount == 0 then
+	local delta = tonumber(amount) or 0
+	if delta == 0 then
 		return
 	end
-	balances[player] = math.max(0, (balances[player] or 0) + amount)
+	state.balances[player] = math.max(0, (state.balances[player] or 0) + delta)
 	publish(player)
-	if amount > 0 and deps.LeaderboardService then
+	if delta > 0 and deps.LeaderboardService then
 		pcall(function()
-			deps.LeaderboardService.recordEarn(player, amount)
+			deps.LeaderboardService.recordEarn(player, delta)
 		end)
 	end
 end
 
--- Atomic server-side debit used by the shop. Returns false and touches nothing
--- when the player cannot afford it, so a stale client price can never overdraw.
+-- Atomic debit: returns false and changes nothing when the player is short, so
+-- a stale client price can never overdraw an account.
 function PlayerService.spendCash(player: Player, amount: number): boolean
-	if not player or not player.Parent then
+	if not alive(player) then
 		return false
 	end
 	local price = tonumber(amount) or 0
 	if price <= 0 then
 		return false
 	end
-	local cash = balances[player] or 0
-	if cash < price then
+	local balance = state.balances[player] or 0
+	if balance < price then
 		return false
 	end
-	balances[player] = cash - price
+	state.balances[player] = balance - price
 	publish(player)
 	return true
 end
 
 function PlayerService.setPadsInfo(player: Player)
-	local carried = tonumber(player:GetAttribute("Carried")) or 0
-	local placed = tonumber(player:GetAttribute("Placed")) or 0
-	local income = tonumber(player:GetAttribute("IncomePerSec")) or 0
-	player:SetAttribute("Carried", carried)
-	player:SetAttribute("Placed", placed)
-	player:SetAttribute("IncomePerSec", income)
-end
-
-function PlayerService.tryRebirth(player: Player)
-	if not player or not player.Parent then
+	if not alive(player) then
 		return
 	end
+	player:SetAttribute("Carried", tonumber(player:GetAttribute("Carried")) or 0)
+	player:SetAttribute("Placed", tonumber(player:GetAttribute("Placed")) or 0)
+	player:SetAttribute("IncomePerSec", tonumber(player:GetAttribute("IncomePerSec")) or 0)
+end
+
+-- Rebirth ------------------------------------------------------------------
+
+function PlayerService.tryRebirth(player: Player)
+	if not alive(player) then
+		return
+	end
+	local now = os.clock()
+	if now - (state.lastRebirthAt[player] or 0) < Config.LIMITS.rebirth then
+		return
+	end
+	state.lastRebirthAt[player] = now
+
 	local cash = PlayerService.getCash(player)
-	if cash < deps.Config.REBIRTH_COST then
-		deps.Util.toast(deps.Remotes, player, string.format("Need $%d to rebirth (you have $%s).", deps.Config.REBIRTH_COST, deps.Util.formatCash(cash)), "bad", 3.5)
+	local cost = Config.REBIRTH_COST
+	if cash < cost then
+		Util.toast(deps.Remotes, player, string.format("Need $%d to rebirth (you have $%s).", cost, Util.formatCash(cash)), "bad", Config.TOAST.short)
 		return
 	end
 
 	local rebirths = PlayerService.getRebirths(player) + 1
-	local multiplier = 1 + deps.Config.REBIRTH_BONUS * rebirths
+	local multiplier = 1 + Config.REBIRTH_BONUS * rebirths
 
-	-- Put every placed brainrot back in the wild before the base is wiped.
+	-- Return every placed creature to the wild *before* wiping the base, so no
+	-- model is orphaned and no pad slot stays marked occupied.
 	pcall(function()
 		deps.BrainrotService.clearBaseForRebirth(player)
 	end)
 
-	balances[player] = 0
+	state.balances[player] = 0
 	player:SetAttribute("Rebirths", rebirths)
 	player:SetAttribute("Multiplier", multiplier)
 	player:SetAttribute("IncomePerSec", 0)
@@ -130,20 +161,21 @@ function PlayerService.tryRebirth(player: Player)
 	pcall(function()
 		deps.BaseService.onRebirth(player, rebirths)
 	end)
-
-	deps.Util.toast(deps.Remotes, player, string.format("REBIRTH %d! Permanent x%.2f cash multiplier.", rebirths, multiplier), "rebirth", 6)
-	deps.Util.broadcastToast(deps.Remotes, string.format("%s rebirthed to level %d!", player.DisplayName, rebirths), "rebirth", 5)
-	deps.Util.fireAll(deps.Remotes.FX, {
-		kind = "rebirth",
-		level = rebirths,
-		position = deps.BaseService.getPadCenter(player),
-	})
 	pcall(function()
 		deps.QuestService.recordEvent(player, "rebirth", 1)
 	end)
 	pcall(function()
 		deps.OnboardingService.progress(player, "rebirth")
 	end)
+
+	Util.toast(deps.Remotes, player, string.format("REBIRTH %d! Permanent x%.2f cash multiplier.", rebirths, multiplier), "rebirth", Config.TOAST.rebirth)
+	Util.broadcastToast(deps.Remotes, string.format("%s rebirthed to level %d!", player.DisplayName, rebirths), "rebirth", Config.TOAST.long)
+	Util.fireAll(deps.Remotes.FX, {
+		kind = "rebirth",
+		level = rebirths,
+		position = deps.BaseService.getPadCenter(player),
+	})
+
 	pcall(function()
 		deps.DataService.updateBest(player, deps.LeaderboardService.getTotalEarned(player), rebirths)
 	end)
@@ -152,18 +184,48 @@ function PlayerService.tryRebirth(player: Player)
 	end)
 end
 
-local function onCharacterAdded(player: Player, character: Model)
+-- Join / leave -------------------------------------------------------------
+
+local function makeLeaderstats(player: Player)
+	if player:FindFirstChild("leaderstats") then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "leaderstats"
+
+	local cash = Instance.new("IntValue")
+	cash.Name = "Cash"
+	cash.Value = 0
+	cash.Parent = folder
+
+	local rebirths = Instance.new("IntValue")
+	rebirths.Name = "Rebirths"
+	rebirths.Value = 0
+	rebirths.Parent = folder
+
+	local multiplier = Instance.new("NumberValue")
+	multiplier.Name = "Multiplier"
+	multiplier.Value = 1
+	multiplier.Parent = folder
+
+	folder.Parent = player
+end
+
+local function setupCharacter(player: Player, character: Model)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid.UseJumpPower = true
 		humanoid.JumpPower = 58
-		humanoid.WalkSpeed = deps.UpgradeService and deps.UpgradeService.getSpeed(player) or 16
 		humanoid.MaxHealth = 100
 		humanoid.Health = 100
+		local speed = 16
+		if deps.UpgradeService then
+			speed = deps.UpgradeService.getSpeed(player)
+		end
+		humanoid.WalkSpeed = speed
 	end
 
-	-- The character can die while carrying; BrainrotService watches Died and
-	-- scatters the carried creatures, so nothing is ever orphaned in the air.
+	-- BrainrotService watches Died and scatters anything being carried.
 	pcall(function()
 		deps.BrainrotService.watchCharacter(player, character)
 	end)
@@ -175,37 +237,27 @@ local function onCharacterAdded(player: Player, character: Model)
 	end
 end
 
+local function trackCharacter(player: Player, character: Model)
+	local links = state.characterLinks[player]
+	if links then
+		for _, link in ipairs(links) do
+			pcall(function()
+				link:Disconnect()
+			end)
+		end
+	end
+	state.characterLinks[player] = {}
+	setupCharacter(player, character)
+end
+
 local function onPlayerAdded(player: Player)
-	if not player.Parent then
+	if not alive(player) or state.joined[player] then
 		return
 	end
-	if initialized[player] then
-		return
-	end
-	initialized[player] = true
-	if not player:FindFirstChild("leaderstats") then
-		local folder = Instance.new("Folder")
-		folder.Name = "leaderstats"
+	state.joined[player] = true
 
-		local cash = Instance.new("IntValue")
-		cash.Name = "Cash"
-		cash.Value = 0
-		cash.Parent = folder
-
-		local rebirths = Instance.new("IntValue")
-		rebirths.Name = "Rebirths"
-		rebirths.Value = 0
-		rebirths.Parent = folder
-
-		local multiplier = Instance.new("NumberValue")
-		multiplier.Name = "Multiplier"
-		multiplier.Value = 1
-		multiplier.Parent = folder
-
-		folder.Parent = player
-	end
-
-	balances[player] = 0
+	makeLeaderstats(player)
+	state.balances[player] = 0
 	player:SetAttribute("Cash", 0)
 	player:SetAttribute("Carried", 0)
 	player:SetAttribute("Placed", 0)
@@ -216,17 +268,17 @@ local function onPlayerAdded(player: Player)
 	PlayerService.setPadsInfo(player)
 	publish(player)
 
-	-- Load persistence before the per-player services read upgrades or index.
+	-- Persistence first: every per-player service below reads from the profile.
 	pcall(function()
 		deps.DataService.load(player)
 	end)
 
-	player.CharacterAdded:Connect(function(character)
-		onCharacterAdded(player, character)
-	end)
 	if player.Character then
-		onCharacterAdded(player, player.Character)
+		trackCharacter(player, player.Character)
 	end
+	player.CharacterAdded:Connect(function(character)
+		trackCharacter(player, character)
+	end)
 
 	pcall(function()
 		deps.UpgradeService.onPlayerAdded(player)
@@ -240,15 +292,14 @@ local function onPlayerAdded(player: Player)
 	pcall(function()
 		deps.OnboardingService.onPlayerAdded(player)
 	end)
-
 	pcall(function()
 		deps.BaseService.assignPad(player)
 	end)
 
-	-- The HUD may still be binding its remotes; a short delayed snapshot is
-	-- cheaper than a client polling loop on every join.
+	-- The HUD may still be binding remotes; one delayed snapshot is cheaper
+	-- than a polling loop on every join.
 	task.delay(0.8, function()
-		if player.Parent then
+		if alive(player) then
 			pcall(function()
 				deps.StateService.push(player)
 			end)
@@ -258,44 +309,62 @@ local function onPlayerAdded(player: Player)
 		end
 	end)
 
-	deps.Util.toast(
+	local cap = deps.UpgradeService and deps.UpgradeService.getCarryCap(player) or Config.MAX_CARRIED
+	local slots = deps.UpgradeService and deps.UpgradeService.getPadSlots(player) or Config.MAX_BASE
+	Util.toast(
 		deps.Remotes,
 		player,
-		string.format("Welcome! You have %d backpack slots and %d pad slots. Grab wild brainrots, bank them, press E for the Index.", deps.UpgradeService.getCarryCap(player), deps.UpgradeService.getPadSlots(player)),
+		string.format("Welcome! You have %d backpack slots and %d pad slots. Grab wild brainrots, bank them, press E for the Index.", cap, slots),
 		"info",
-		7
+		Config.TOAST.welcome
 	)
 end
 
 local function onPlayerRemoving(player: Player)
-	-- Return this player's creatures to the wild before their pad disappears.
-	pcall(function()
-		deps.BrainrotService.releasePlayer(player)
-	end)
-	pcall(function()
-		deps.BaseService.releasePlayer(player)
-	end)
-	pcall(function()
-		deps.LeaderboardService.releasePlayer(player)
-	end)
-	pcall(function()
-		deps.QuestService.releasePlayer(player)
-	end)
-	pcall(function()
-		deps.OnboardingService.releasePlayer(player)
-	end)
-	pcall(function()
-		deps.UpgradeService.releasePlayer(player)
-	end)
+	-- Order matters: creatures go home before the pad and the profile vanish.
+	local cleanups = {
+		"BrainrotService",
+		"BaseService",
+		"LeaderboardService",
+		"QuestService",
+		"OnboardingService",
+		"UpgradeService",
+	}
+	for _, name in ipairs(cleanups) do
+		local service = deps[name]
+		if service and service.releasePlayer then
+			pcall(service.releasePlayer, player)
+		end
+	end
 	pcall(function()
 		deps.DataService.save(player)
 	end)
-	balances[player] = nil
-	initialized[player] = nil
+
+	local links = state.characterLinks[player]
+	if links then
+		for _, link in ipairs(links) do
+			pcall(function()
+				link:Disconnect()
+			end)
+		end
+	end
+	state.characterLinks[player] = nil
+	state.balances[player] = nil
+	state.joined[player] = nil
+	state.lastRebirthAt[player] = nil
 end
 
-function PlayerService.init(services: any)
+-- Lifecycle ----------------------------------------------------------------
+
+function PlayerService.start(services: any)
 	deps = services
+	Config = services.Config
+	Util = services.Util
+	state.running = true
+	state.balances = {}
+	state.joined = {}
+	state.lastRebirthAt = {}
+	state.characterLinks = {}
 
 	local rebirthRemote = deps.Remotes and deps.Remotes.Rebirth
 	if rebirthRemote then
@@ -308,6 +377,18 @@ function PlayerService.init(services: any)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
 	for _, player in ipairs(Players:GetPlayers()) do
 		onPlayerAdded(player)
+	end
+end
+
+function PlayerService.stop()
+	state.running = false
+	for player, links in pairs(state.characterLinks) do
+		for _, link in ipairs(links) do
+			pcall(function()
+				link:Disconnect()
+			end)
+		end
+		state.characterLinks[player] = nil
 	end
 end
 
