@@ -266,6 +266,33 @@ Config.LEADERBOARD_ROWS = 10
 Config.LEADERBOARD_REFRESH = 6   -- seconds between board/HUD refreshes
 Config.LEADERBOARD_MIN_GAP = 1   -- minimum seconds between two pushes
 
+-- Seasons ------------------------------------------------------------------
+-- A daily UTC season. EPOCH_DAY is 2026-11-20 UTC (Unix epoch day 20776).
+-- seasonInfo() is the only place that reads a clock for the season; every
+-- service and the HUD ask Config for the precomputed label and reset note.
+Config.SEASON = {
+	epochDay = 20776,
+	lengthDays = 1,
+	resetNote = "Resets daily at 00:00 UTC",
+}
+
+function Config.seasonInfo(nowSeconds: number?): any
+	local seconds = nowSeconds or os.time()
+	local utcDay = math.floor(seconds / 86400)
+	local offset = utcDay - Config.SEASON.epochDay
+	local number = math.floor(offset / Config.SEASON.lengthDays) + 1
+	if number < 1 then
+		number = 1
+	end
+	return {
+		number = number,
+		utcDay = utcDay,
+		date = os.date("!%Y-%m-%d", utcDay * 86400),
+		label = string.format("SEASON %d", number),
+		resetNote = Config.SEASON.resetNote,
+	}
+end
+
 -- Map layout (studs) -------------------------------------------------------
 Config.MAP = {
 	arenaSize = 250,

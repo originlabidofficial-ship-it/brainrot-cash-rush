@@ -34,6 +34,11 @@ local function alive(player: Player?): boolean
 	return player ~= nil and player.Parent ~= nil
 end
 
+local function seasonLine(): string
+	local season = Config.seasonInfo()
+	return string.format("%s  •  %s UTC  •  %s", season.label, season.date, season.resetNote)
+end
+
 local function rowText(rank: number, entry: any): (string, Color3)
 	local name = string.sub(tostring(entry.name or "?"), 1, 14)
 	local cash = Util.formatCash(entry.cash or 0)
@@ -189,7 +194,7 @@ local function buildBoard()
 	state.statusLabel = Util.label({
 		Size = UDim2.new(1, -24, 0.055, 0),
 		Position = UDim2.new(0, 12, 0.115, 0),
-		Text = "SERVER + ALL-TIME BESTS  •  LIVE",
+		Text = seasonLine(),
 		Font = Enum.Font.GothamBold,
 		TextColor3 = Color3.fromRGB(90, 230, 255),
 		TextScaled = true,
@@ -234,7 +239,7 @@ local function paintBoard(list: { any })
 		end
 	end
 	if state.statusLabel then
-		state.statusLabel.Text = string.format("SERVER + ALL-TIME BESTS  •  LIVE  •  %s", os.date("%H:%M:%S"))
+		state.statusLabel.Text = seasonLine()
 	end
 end
 
@@ -270,6 +275,7 @@ function LeaderboardService.pushTo(player: Player)
 		viewerRank = viewerRank,
 		viewerCash = state.sessionTotals[player] or deps.DataService.getBestTotal(player),
 		totalPlayers = #list,
+		season = Config.seasonInfo(),
 	})
 end
 

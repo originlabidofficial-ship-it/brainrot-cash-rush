@@ -818,6 +818,15 @@ end
 -- Leaderboard panel --------------------------------------------------------
 
 local boardPanel = makePanel("board", "TOP 10 EARNERS", "This server plus persisted all-time bests", UI.pink)
+local boardSeason = text({
+	Size = UDim2.new(1, -24, 0, 18),
+	Position = UDim2.fromOffset(12, 62),
+	Text = "SEASON • UTC DAY • " .. Config.SEASON.resetNote,
+	Font = Enum.Font.GothamBold,
+	TextColor3 = UI.gold,
+	TextSize = 12,
+	TextXAlignment = Enum.TextXAlignment.Center,
+}, boardPanel)
 local boardRows: { any } = {}
 local boardFooter = text({
 	Size = UDim2.new(1, -24, 0, 20),
@@ -832,7 +841,7 @@ local boardFooter = text({
 for i = 1, Config.LEADERBOARD_ROWS do
 	local row = surface({
 		Size = UDim2.new(1, -24, 0, 30),
-		Position = UDim2.fromOffset(12, 66 + (i - 1) * 34),
+		Position = UDim2.fromOffset(12, 88 + (i - 1) * 34),
 		BackgroundColor3 = i % 2 == 0 and UI.panelLight or Color3.fromRGB(24, 21, 38),
 		BackgroundTransparency = 0.1,
 	}, boardPanel)
@@ -924,6 +933,9 @@ end
 local function applyLeaderboard(payload: any)
 	if type(payload) ~= "table" or payload.kind ~= "leaderboard" then
 		return
+	end
+	if type(payload.season) == "table" then
+		boardSeason.Text = string.format("%s  •  %s UTC  •  %s", payload.season.label or "SEASON", payload.season.date or "----", payload.season.resetNote or Config.SEASON.resetNote)
 	end
 	local entries = payload.entries or {}
 	for i, row in ipairs(boardRows) do
