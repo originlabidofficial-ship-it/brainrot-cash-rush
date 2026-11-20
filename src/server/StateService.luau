@@ -124,6 +124,13 @@ local function questSection(player: Player): { any }
 	return entries
 end
 
+local function craftSection(player: Player): any
+	if not deps.CraftService then
+		return nil
+	end
+	return deps.CraftService.preview(player)
+end
+
 function StateService.build(player: Player): any
 	return {
 		kind = "state",
@@ -138,6 +145,7 @@ function StateService.build(player: Player): any
 		index = indexSection(player),
 		upgrades = shopSection(player),
 		quests = questSection(player),
+		craft = craftSection(player),
 		tutorial = deps.OnboardingService.getState(player),
 		bestTotal = deps.DataService.getBestTotal(player),
 		totalEarned = deps.LeaderboardService.getTotalEarned(player),

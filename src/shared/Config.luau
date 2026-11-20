@@ -70,7 +70,14 @@ Config.LIMITS = {
 	questClaim = 0.8,
 	rebirth = 2.0,
 	tutorial = 0.5,
+	craft = 2.0,
 }
+
+-- Crafting -----------------------------------------------------------------
+-- Three banked creatures of one rarity become one creature of the next tier.
+-- Mythic is the cap, so only the first four rarities can be spent.
+Config.CRAFT_COUNT = 3
+Config.CRAFT_ENABLED_RARITIES = 4
 
 -- Toast durations ----------------------------------------------------------
 Config.TOAST = {
@@ -296,6 +303,7 @@ Config.REMOTES = {
 	FX = "FX",
 	ShopBuy = "ShopBuy",
 	QuestClaim = "QuestClaim",
+	CraftRequest = "CraftRequest",
 	TutorialAction = "TutorialAction",
 	State = "State",
 	Leaderboard = "Leaderboard",

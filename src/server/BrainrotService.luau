@@ -1230,6 +1230,88 @@ function BrainrotService.getBaseIncome(player: Player): number
 	return total
 end
 
+-- Crafting -----------------------------------------------------------------
+-- The three source records are consumed, not returned to the wild. Their two
+-- spare slots stay empty; the crafted creature takes the first freed slot so
+-- the player always sees the result appear where the recipe began.
+
+function BrainrotService.countBankedRarity(player: Player, rarityName: string): number
+	local list = world.placed[player]
+	if not list then
+		return 0
+	end
+	local count = 0
+	for _, record in ipairs(list) do
+		if record.rarity.name == rarityName then
+			count += 1
+		end
+	end
+	return count
+end
+
+function BrainrotService.craftBanked(player: Player, sourceRarity: string, kind: any): any
+	if not alive(player) or type(kind) ~= "table" then
+		return nil
+	end
+	local sourceIndex = table.find(Config.RARITY_ORDER, sourceRarity)
+	local targetRarity = sourceIndex and Config.RARITY_ORDER[sourceIndex + 1]
+	if not targetRarity or kind.rarity ~= targetRarity then
+		return nil
+	end
+
+	local list = world.placed[player]
+	if not list then
+		return nil
+	end
+	local picked = {}
+	for _, record in ipairs(list) do
+		if record.rarity.name == sourceRarity and record.slot then
+			table.insert(picked, record)
+			if #picked >= Config.CRAFT_COUNT then
+				break
+			end
+		end
+	end
+	if #picked < Config.CRAFT_COUNT then
+		return nil
+	end
+
+	local targetSlot = picked[1].slot
+	local slotCFrame = targetSlot and deps.BaseService.getSlotCFrame(player, targetSlot)
+	if not slotCFrame then
+		return nil
+	end
+
+	-- Build the result before spending anything. A failed model build leaves
+	-- the three originals exactly where they were.
+	local ok, newRecord = pcall(BrainrotService.spawnOne, kind)
+	if not ok or not newRecord then
+		return nil
+	end
+	Util.removeAll(world.wild, newRecord)
+
+	for _, record in ipairs(picked) do
+		Util.removeAll(list, record)
+		Util.removeAll(world.records, record)
+		world.byRoot[record.root] = nil
+		if record.slot then
+			deps.BaseService.setSlotOccupied(player, record.slot, false)
+		end
+		if record.model then
+			record.model:Destroy()
+		end
+	end
+
+	table.insert(list, newRecord)
+	seatOnPad(newRecord, player, targetSlot, slotCFrame)
+	refreshAttributes(player)
+	deps.BaseService.refreshPad(player)
+	pcall(function()
+		deps.StateService.push(player)
+	end)
+	return newRecord
+end
+
 -- Releasing creatures back to the wild ------------------------------------
 
 local function releaseToWild(record: any)

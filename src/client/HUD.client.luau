@@ -43,6 +43,7 @@ local Remotes = {
 	Rebirth = RemotesFolder:WaitForChild("Rebirth", 10),
 	ShopBuy = RemotesFolder:WaitForChild("ShopBuy", 10),
 	QuestClaim = RemotesFolder:WaitForChild("QuestClaim", 10),
+	CraftRequest = RemotesFolder:WaitForChild("CraftRequest", 10),
 	TutorialAction = RemotesFolder:WaitForChild("TutorialAction", 10),
 }
 
@@ -242,8 +243,8 @@ local waveLabel = text({
 }, waveCard)
 
 local menuBar = surface({
-	Size = UDim2.fromOffset(330, 40),
-	Position = UDim2.new(1, -346, 0, 76),
+	Size = UDim2.fromOffset(414, 40),
+	Position = UDim2.new(1, -430, 0, 76),
 	BackgroundTransparency = 1,
 }, screen)
 local menuLayout = Instance.new("UIListLayout")
@@ -263,7 +264,8 @@ end
 local indexButton = menuButton("INDEX (E)", UI.cyan, 1)
 local shopButton = menuButton("SHOP (B)", UI.gold, 2)
 local questButton = menuButton("QUESTS (Q)", UI.green, 3)
-local boardButton = menuButton("TOP (L)", UI.pink, 4)
+local craftButton = menuButton("CRAFT (C)", UI.cyan, 4)
+local boardButton = menuButton("TOP (L)", UI.pink, 5)
 
 -- Toast feed, bottom-left, newest at the bottom.
 local feed = surface({
@@ -713,6 +715,106 @@ local function buildQuestCards(quests: { any })
 	end
 end
 
+-- Crafting panel -----------------------------------------------------------
+
+local craftPanel = makePanel("craft", "CRAFTING LAB", "Stand on your pad • combine three of one rarity into the next", UI.cyan)
+local craftHint = text({
+	Size = UDim2.new(1, -24, 0, 22),
+	Position = UDim2.fromOffset(12, 62),
+	Text = "Stand on YOUR pad to craft.",
+	Font = Enum.Font.GothamBold,
+	TextColor3 = UI.textDim,
+	TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, craftPanel)
+
+local craftRows: { [string]: any } = {}
+
+local function buildCraftTable()
+	local maxSource = math.min(Config.CRAFT_ENABLED_RARITIES, #Config.RARITY_ORDER - 1)
+	for index = 1, maxSource do
+		local source = Config.RARITY_ORDER[index]
+		local target = Config.RARITY_ORDER[index + 1]
+		local targetRarity = Config.RARITIES[target]
+		local sourceRarity = Config.RARITIES[source]
+		local row = surface({
+			Size = UDim2.new(1, -24, 0, 76),
+			Position = UDim2.fromOffset(12, 92 + (index - 1) * 84),
+			BackgroundColor3 = UI.panelLight,
+			BackgroundTransparency = 0.08,
+		}, craftPanel)
+		Util.corner(row, 10)
+		Util.stroke(row, targetRarity.color, 1.4, 0.45)
+
+		local heading = text({
+			Size = UDim2.new(0.5, -10, 0, 20),
+			Position = UDim2.fromOffset(10, 6),
+			Text = string.format("%s x%d  ->  %s", string.upper(source), Config.CRAFT_COUNT, string.upper(target)),
+			Font = Enum.Font.GothamBlack,
+			TextColor3 = sourceRarity.color,
+			TextSize = 14,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, row)
+		local count = text({
+			Size = UDim2.new(0.5, -10, 0, 18),
+			Position = UDim2.fromOffset(10, 27),
+			Text = "0 / 3 banked",
+			Font = Enum.Font.Gotham,
+			TextColor3 = UI.textDim,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, row)
+		local result = text({
+			Size = UDim2.new(0.58, -10, 0, 18),
+			Position = UDim2.fromOffset(10, 47),
+			Text = "NEXT: ???",
+			Font = Enum.Font.GothamBold,
+			TextColor3 = targetRarity.color,
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		}, row)
+		local craft = button(row, "CRAFT", UDim2.fromOffset(136, 38), UDim2.new(1, -146, 0.5, -19), targetRarity.color)
+		craft.TextColor3 = Color3.fromRGB(20, 24, 30)
+		craft.MouseButton1Click:Connect(function()
+			sendRateLimited("craft:" .. source, Config.LIMITS.craft, function()
+				Remotes.CraftRequest:FireServer(source)
+			end)
+		end)
+		craftRows[source] = { root = row, heading = heading, count = count, result = result, craft = craft, targetColor = targetRarity.color }
+	end
+end
+
+buildCraftTable()
+
+local function applyCraft(craft: any)
+	if type(craft) ~= "table" then
+		return
+	end
+	if craft.onPad then
+		craftHint.Text = "ON YOUR PAD  •  craft three of any rarity below"
+		craftHint.TextColor3 = UI.green
+	else
+		craftHint.Text = "STAND ON YOUR PAD  •  the recipe checks your deck"
+		craftHint.TextColor3 = UI.textDim
+	end
+	for _, entry in ipairs(craft.entries or {}) do
+		local row = craftRows[entry.source]
+		if row then
+			local required = tonumber(entry.required) or Config.CRAFT_COUNT
+			local have = tonumber(entry.count) or 0
+			row.count.Text = string.format("%d / %d banked", have, required)
+			row.result.Text = entry.resultName and ("NEXT: " .. entry.resultName) or "NEXT: ???"
+			local ready = entry.ready == true and craft.onPad == true
+			row.craft.Text = ready and "CRAFT" or (have >= required and "ON PAD" or string.format("NEED %d", math.max(0, required - have)))
+			row.craft.BackgroundColor3 = ready and row.targetColor or UI.panelLight
+			row.craft.TextColor3 = ready and Color3.fromRGB(20, 24, 30) or UI.textDim
+			row.craft.AutoButtonColor = ready
+			row.count.TextColor3 = have >= required and UI.green or UI.textDim
+		end
+	end
+end
+
 -- Leaderboard panel --------------------------------------------------------
 
 local boardPanel = makePanel("board", "TOP 10 EARNERS", "This server plus persisted all-time bests", UI.pink)
@@ -800,6 +902,9 @@ local function applyState(payload: any)
 	end
 	if payload.quests then
 		buildQuestCards(payload.quests)
+	end
+	if payload.craft then
+		applyCraft(payload.craft)
 	end
 	if payload.tutorial then
 		local done = payload.tutorial.done == true
@@ -899,6 +1004,9 @@ end)
 questButton.MouseButton1Click:Connect(function()
 	togglePanel("quests")
 end)
+craftButton.MouseButton1Click:Connect(function()
+	togglePanel("craft")
+end)
 boardButton.MouseButton1Click:Connect(function()
 	togglePanel("board")
 end)
@@ -931,6 +1039,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		togglePanel("shop")
 	elseif code == Enum.KeyCode.Q then
 		togglePanel("quests")
+	elseif code == Enum.KeyCode.C then
+		togglePanel("craft")
 	elseif code == Enum.KeyCode.L then
 		togglePanel("board")
 	elseif code == Enum.KeyCode.R then

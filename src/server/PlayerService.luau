@@ -326,6 +326,7 @@ local function onPlayerRemoving(player: Player)
 		"BrainrotService",
 		"BaseService",
 		"LeaderboardService",
+		"CraftService",
 		"QuestService",
 		"OnboardingService",
 		"UpgradeService",

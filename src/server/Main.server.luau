@@ -41,6 +41,7 @@ local Remotes = {
 	FX = makeRemote(Config.REMOTES.FX),
 	ShopBuy = makeRemote(Config.REMOTES.ShopBuy),
 	QuestClaim = makeRemote(Config.REMOTES.QuestClaim),
+	CraftRequest = makeRemote(Config.REMOTES.CraftRequest),
 	TutorialAction = makeRemote(Config.REMOTES.TutorialAction),
 	State = makeRemote(Config.REMOTES.State),
 	Leaderboard = makeRemote(Config.REMOTES.Leaderboard),
@@ -63,6 +64,7 @@ local DataService = require(script.Parent:WaitForChild("DataService"))
 local BaseService = require(script.Parent:WaitForChild("BaseService"))
 local BrainrotService = require(script.Parent:WaitForChild("BrainrotService"))
 local MutationService = require(script.Parent:WaitForChild("MutationService"))
+local CraftService = require(script.Parent:WaitForChild("CraftService"))
 local WaveService = require(script.Parent:WaitForChild("WaveService"))
 local UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
 local QuestService = require(script.Parent:WaitForChild("QuestService"))
@@ -76,6 +78,7 @@ Services.DataService = DataService
 Services.BaseService = BaseService
 Services.BrainrotService = BrainrotService
 Services.MutationService = MutationService
+Services.CraftService = CraftService
 Services.WaveService = WaveService
 Services.UpgradeService = UpgradeService
 Services.QuestService = QuestService
@@ -92,6 +95,7 @@ local bootOrder = {
 	{ "BaseService", BaseService },
 	{ "BrainrotService", BrainrotService },
 	{ "MutationService", MutationService },
+	{ "CraftService", CraftService },
 	{ "WaveService", WaveService },
 	{ "UpgradeService", UpgradeService },
 	{ "QuestService", QuestService },
