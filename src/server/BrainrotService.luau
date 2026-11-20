@@ -565,6 +565,167 @@ RECIPES.cat = function(b, body, accent)
 	b.part("CatCollar", { 2.35, 0.35, 2.15 }, { 0, 0.45, 0.75 }, accent, Enum.Material.Neon, Enum.PartType.Block, 0.15)
 end
 
+RECIPES.noodlegoblin = function(b, body, accent)
+	b.part("GoblinBody", { 2.8, 2.6, 2.6 }, { 0, -0.35, 0 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("GoblinHead", { 2.2, 2.0, 2.0 }, { 0, 1.35, 0.35 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("GoblinNose", { 0.62, 0.5, 0.95 }, { 0, 0.95, 1.38 }, body:Lerp(WHITE, 0.25), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.eyes(1.55, 1.25, 0.48, 0.42, accent)
+	b.brows(1.95, 1.28, 0.48, 14)
+	b.part("Grin", { 1.0, 0.16, 0.2 }, { 0, 0.65, 1.35 }, DARK)
+	b.part("EarL", { 1.15, 0.38, 0.38 }, { -1.2, 1.5, 0.25, 0, 0, -38 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	b.part("EarR", { 1.15, 0.38, 0.38 }, { 1.2, 1.5, 0.25, 0, 0, 38 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	for i = 1, 5 do
+		local side = i % 2 == 0 and 1 or -1
+		b.part("Noodle", { 0.3, 3.2, 0.3 }, { side * (0.9 + i * 0.18), -1.7, -0.35 + i * 0.18, 0, i * 12, side * 48 }, accent, Enum.Material.Neon, Enum.PartType.Cylinder)
+		b.part("NoodleTip", { 0.46, 0.46, 0.46 }, { side * (1.9 + i * 0.18), -2.9, -0.35 + i * 0.18 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+	end
+	b.part("ForkHandle", { 0.22, 2.7, 0.22 }, { 1.75, 0.35, -0.75, 0, 0, -28 }, Color3.fromRGB(210, 220, 230), Enum.Material.Metal, Enum.PartType.Cylinder)
+	b.part("ForkHead", { 0.7, 0.2, 0.8 }, { 2.4, 1.55, -0.75 }, Color3.fromRGB(210, 220, 230), Enum.Material.Metal)
+end
+
+RECIPES.gnomemoth = function(b, body, accent)
+	b.part("MothBody", { 2.4, 2.7, 2.2 }, { 0, -0.35, 0 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("MothHead", { 1.8, 1.7, 1.7 }, { 0, 1.3, 0.45 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("HatBase", { 2.3, 0.3, 2.3 }, { 0, 2.05, 0.3 }, accent)
+	b.part("HatMid", { 1.55, 0.6, 1.55 }, { 0, 2.45, 0.3 }, accent)
+	b.part("HatTip", { 0.75, 0.75, 0.75 }, { 0, 2.95, 0.3 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+	b.part("Beard", { 1.2, 0.9, 0.5 }, { 0, 0.45, 1.2 }, WHITE, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.eyes(1.4, 1.2, 0.42, 0.38, accent)
+	b.part("MothWingL", { 0.22, 2.9, 3.3 }, { -1.65, 0.35, -0.4, 0, 18, 28 }, accent, Enum.Material.Neon, Enum.PartType.Block, 0.18)
+	b.part("MothWingR", { 0.22, 2.9, 3.3 }, { 1.65, 0.35, -0.4, 0, -18, -28 }, accent, Enum.Material.Neon, Enum.PartType.Block, 0.18)
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("Antenna", { 0.12, 1.3, 0.12 }, { side * 0.45, 2.2, 0.55, 0, 0, side * 22 }, DARK, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		b.part("AntennaTip", { 0.28, 0.28, 0.28 }, { side * 0.68, 2.82, 0.55 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+		b.part("Shoe", { 0.85, 0.45, 1.2 }, { side * 0.6, -1.8, 0.35 }, DARK)
+	end
+	b.part("Lantern", { 0.65, 0.8, 0.65 }, { 0, -0.2, 1.35 }, Color3.fromRGB(255, 230, 140), Enum.Material.Neon, Enum.PartType.Ball, 0.15)
+end
+
+RECIPES.disco = function(b, body, accent)
+	b.part("HamsterBody", { 2.7, 2.4, 2.8 }, { 0, -0.55, 0 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("HamsterHead", { 2.1, 1.8, 1.9 }, { 0, 1.2, 0.55 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("CheekL", { 0.85, 0.7, 0.8 }, { -0.75, 0.75, 1.15 }, body:Lerp(WHITE, 0.25), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("CheekR", { 0.85, 0.7, 0.8 }, { 0.75, 0.75, 1.15 }, body:Lerp(WHITE, 0.25), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("Ear", { 0.8, 0.8, 0.35 }, { side * 0.72, 2.05, 0.45 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		b.part("EarGlow", { 0.42, 0.42, 0.18 }, { side * 0.72, 2.05, 0.63 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+		b.part("Paw", { 0.55, 0.45, 0.8 }, { side * 1.05, -1.55, 0.9 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+	b.eyes(1.45, 1.35, 0.48, 0.4, accent)
+	b.part("Nose", { 0.28, 0.24, 0.2 }, { 0, 0.95, 1.55 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+	b.part("DiscoStem", { 1.5, 0.16, 0.16 }, { 0, 2.5, 0, 0, 0, -25 }, Color3.fromRGB(220, 225, 240), Enum.Material.Metal, Enum.PartType.Cylinder)
+	b.part("DiscoBall", { 1.15, 1.15, 1.15 }, { -0.52, 3.15, 0 }, Color3.fromRGB(200, 220, 255), Enum.Material.Metal, Enum.PartType.Ball)
+	for i = 0, 5 do
+		local angle = i * 60
+		b.part("DiscTile", { 0.18, 0.2, 0.5 }, { -0.52, 3.15, 0, angle, 0, 0 }, accent, Enum.Material.Neon)
+	end
+	b.part("DanceFloor", { 0.18, 3.8, 3.8 }, { 0, -2.0, 0.2, 0, 0, 90 }, accent, Enum.Material.Neon, Enum.PartType.Cylinder, 0.35)
+end
+
+RECIPES.boba = function(b, body, accent)
+	b.part("YetiBody", { 3.0, 2.9, 2.6 }, { 0, -0.25, 0 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("YetiHead", { 2.3, 2.0, 2.0 }, { 0, 1.45, 0.4 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("FurL", { 1.25, 1.4, 1.25 }, { -1.15, 0.3, 0 }, body:Lerp(WHITE, 0.12), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("FurR", { 1.25, 1.4, 1.25 }, { 1.15, 0.3, 0 }, body:Lerp(WHITE, 0.12), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.eyes(1.7, 1.1, 0.46, 0.42, accent)
+	b.brows(2.05, 1.15, 0.46, 6)
+	b.part("Muzzle", { 1.1, 0.65, 0.7 }, { 0, 1.0, 1.28 }, body:Lerp(WHITE, 0.25), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("Nose", { 0.36, 0.28, 0.24 }, { 0, 1.15, 1.65 }, DARK, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("Horn", { 0.65, 0.28, 0.28 }, { side * 0.75, 2.45, 0.4, 0, 0, side * 52 }, Color3.fromRGB(130, 180, 220), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+		b.part("Arm", { 0.45, 1.7, 0.45 }, { side * 1.55, 0.1, 0.25, 0, 0, side * 24 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+	b.part("TeaCup", { 2.0, 1.55, 1.75 }, { 0, -0.55, 1.25 }, Color3.fromRGB(250, 245, 235), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	b.part("Tea", { 0.22, 1.55, 1.55 }, { 0, -0.04, 1.55, 90, 0, 0 }, accent, Enum.Material.Neon, Enum.PartType.Cylinder, 0.1)
+	b.part("Straw", { 1.75, 0.22, 0.22 }, { 0.42, 0.9, 1.35, 0, 0, -18 }, Color3.fromRGB(255, 115, 175), Enum.Material.Neon, Enum.PartType.Cylinder)
+	for i = 1, 4 do
+		b.part("Boba", { 0.34, 0.34, 0.34 }, { -0.45 + i * 0.28, -0.52, 2.08 }, DARK, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+end
+
+RECIPES.ratking = function(b, body, accent)
+	b.part("Pizza", { 0.75, 4.2, 4.2 }, { 0, -1.75, 0, 0, 0, 90 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	b.part("Crust", { 0.95, 4.5, 4.5 }, { 0, -1.95, 0, 0, 0, 90 }, accent, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	for i = 1, 7 do
+		local angle = i * (math.pi * 2 / 7)
+		b.part("Pepperoni", { 0.42, 0.42, 0.42 }, { math.cos(angle) * 1.45, -1.28, math.sin(angle) * 1.45 }, Color3.fromRGB(220, 65, 55), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+	b.part("RatBody", { 2.2, 2.0, 2.4 }, { 0, 0.3, 0 }, body:Lerp(WHITE, 0.28), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("RatHead", { 1.7, 1.55, 1.6 }, { 0, 1.7, 0.65 }, body:Lerp(WHITE, 0.35), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("RatSnout", { 0.85, 0.55, 0.8 }, { 0, 1.45, 1.55 }, body:Lerp(WHITE, 0.5), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("RatNose", { 0.28, 0.22, 0.2 }, { 0, 1.55, 1.98 }, Color3.fromRGB(240, 140, 160), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("RatEar", { 0.9, 0.9, 0.24 }, { side * 0.72, 2.5, 0.55 }, body:Lerp(WHITE, 0.3), Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		b.part("RatEarInner", { 0.48, 0.48, 0.12 }, { side * 0.72, 2.5, 0.69 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+		b.part("Whisker", { 1.1, 0.06, 0.06 }, { side * 1.0, 1.35, 1.65, 0, side * 14, side * 8 }, WHITE, Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	end
+	b.eyes(1.85, 1.4, 0.38, 0.34, accent)
+	b.part("RatTail", { 2.2, 0.25, 0.25 }, { 1.1, 0.1, -1.75, 0, 0, -42 }, Color3.fromRGB(230, 160, 170), Enum.Material.SmoothPlastic, Enum.PartType.Cylinder)
+	b.part("CrownBase", { 1.65, 0.22, 0.45 }, { 0, 2.65, 0.55 }, Color3.fromRGB(255, 215, 70), Enum.Material.Neon)
+	for i = -1, 1 do
+		b.part("CrownSpike", { 0.32, 0.75, 0.32 }, { i * 0.45, 3.0, 0.55, 0, 0, i * 13 }, Color3.fromRGB(255, 215, 70), Enum.Material.Neon)
+	end
+end
+
+RECIPES.puppet = function(b, body, accent)
+	b.part("SockLeg", { 2.1, 3.6, 1.9 }, { 0, -0.1, 0, 0, 0, -7 }, body, Enum.Material.Fabric)
+	b.part("SockHeel", { 1.55, 1.2, 1.5 }, { 0.65, -1.65, 0.1 }, body:Lerp(Color3.fromRGB(80, 40, 70), 0.18), Enum.Material.Fabric, Enum.PartType.Ball)
+	b.part("SockToe", { 2.1, 1.7, 2.15 }, { 0, -1.6, 0.65 }, body:Lerp(WHITE, 0.1), Enum.Material.Fabric, Enum.PartType.Ball)
+	b.part("Cuff", { 2.25, 0.45, 2.05 }, { 0, 1.75, 0 }, accent, Enum.Material.Neon)
+	b.part("Mouth", { 1.35, 0.5, 0.2 }, { 0, -0.6, 1.25 }, Color3.fromRGB(55, 25, 55))
+	b.part("Tongue", { 0.8, 0.18, 0.16 }, { 0, -0.78, 1.37 }, Color3.fromRGB(255, 120, 150), Enum.Material.Neon)
+	b.eyes(-1.15, 1.12, 0.48, 0.44, accent)
+	b.brows(-0.7, 1.18, 0.48, -12)
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("Button", { 0.2, 0.2, 0.2 }, { side * 0.7, -0.3, 1.32 }, Color3.fromRGB(255, 215, 70), Enum.Material.Neon, Enum.PartType.Ball)
+	end
+	b.part("PuppetArm", { 0.45, 2.3, 0.45 }, { -1.35, -0.8, 0.1, 0, 0, 48 }, body, Enum.Material.Fabric, Enum.PartType.Cylinder)
+	b.part("PuppetHand", { 0.7, 0.7, 0.7 }, { -2.15, -1.55, 0.1 }, accent, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("Patch", { 0.55, 0.55, 0.12 }, { 0.65, -0.75, 1.23, 0, 0, 20 }, accent, Enum.Material.Neon)
+end
+
+RECIPES.cloudjelly = function(b, body, accent)
+	local puffs = {
+		{ -1.35, -0.15, 0.1, 1.65 },
+		{ -0.55, 0.55, 0.0, 1.85 },
+		{ 0.45, 0.4, -0.05, 1.75 },
+		{ 1.3, -0.15, 0.1, 1.5 },
+		{ 0, -0.55, 0.1, 2.1 },
+	}
+	for _, puff in ipairs(puffs) do
+		b.part("CloudPuff", { puff[4], puff[4], puff[4] * 0.95 }, { puff[1], puff[2], puff[3] }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	end
+	b.part("JellyDome", { 2.3, 2.3, 2.3 }, { 0, 0.65, 0.7 }, accent, Enum.Material.Neon, Enum.PartType.Ball, 0.36)
+	b.part("JellyCore", { 1.2, 1.2, 1.2 }, { 0, 0.55, 0.75 }, accent:Lerp(WHITE, 0.4), Enum.Material.Neon, Enum.PartType.Ball, 0.2)
+	b.eyes(0.95, 1.75, 0.46, 0.38)
+	b.part("Smile", { 0.85, 0.16, 0.15 }, { 0, 0.35, 1.72 }, DARK)
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("Sparkle", { 0.35, 0.35, 0.35 }, { side * 2.1, 1.35, 0.2, 0, 0, 45 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+		b.part("RainDrop", { 0.28, 0.7, 0.28 }, { side * 0.95, -1.55, 0.35 }, Color3.fromRGB(110, 190, 255), Enum.Material.Neon, Enum.PartType.Ball, 0.25)
+	end
+	b.part("Halo", { 0.14, 2.6, 2.6 }, { 0, 1.65, 0.2, 0, 0, 90 }, accent, Enum.Material.Neon, Enum.PartType.Cylinder, 0.55)
+end
+
+RECIPES.radioskull = function(b, body, accent)
+	b.part("Skull", { 2.2, 2.0, 1.9 }, { 0, 1.25, 0.25 }, body, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.part("Jaw", { 1.5, 0.75, 1.4 }, { 0, 0.15, 0.55 }, body:Lerp(WHITE, 0.2))
+	for _, side in ipairs({ -1, 1 }) do
+		b.part("EyeSocket", { 0.7, 0.55, 0.35 }, { side * 0.47, 1.35, 1.12 }, DARK, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+		b.part("EyeGlow", { 0.3, 0.24, 0.18 }, { side * 0.47, 1.35, 1.28 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+	end
+	b.part("SkullNose", { 0.28, 0.24, 0.2 }, { 0, 0.8, 1.2 }, DARK, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	b.teeth(0.22, 1.26, 4, 0.25, WHITE)
+	b.part("Radio", { 2.5, 1.7, 1.25 }, { 0, -1.15, 0.3 }, DARK, Enum.Material.Metal)
+	b.part("Speaker", { 1.1, 1.0, 0.16 }, { -0.55, -1.15, 0.97 }, accent, Enum.Material.Neon, Enum.PartType.Cylinder)
+	b.part("Dial", { 0.5, 0.5, 0.18 }, { 0.7, -0.95, 0.97 }, Color3.fromRGB(255, 220, 90), Enum.Material.Neon, Enum.PartType.Cylinder)
+	for i = -1, 1 do
+		b.part("Tuner", { 0.22, 0.22, 0.18 }, { 0.55 + i * 0.35, -1.55, 0.97 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+	end
+	b.part("Antenna", { 2.4, 0.14, 0.14 }, { 0.9, 2.35, 0, 0, 0, -28 }, Color3.fromRGB(210, 220, 235), Enum.Material.Metal, Enum.PartType.Cylinder)
+	b.part("AntennaTip", { 0.42, 0.42, 0.42 }, { 1.95, 3.35, 0 }, accent, Enum.Material.Neon, Enum.PartType.Ball)
+	b.part("Handle", { 1.6, 0.22, 0.22 }, { 0, 0.05, -0.6, 0, 0, 90 }, Color3.fromRGB(210, 220, 235), Enum.Material.Metal, Enum.PartType.Cylinder)
+end
+
 -- Model assembly -----------------------------------------------------------
 
 local function addNameplate(model: Model, root: BasePart, kind: any, rarity: any)
