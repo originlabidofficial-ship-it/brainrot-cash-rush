@@ -68,11 +68,23 @@ local function indexSection(player: Player): any
 		})
 	end
 	local total = #entries
+	local mutations = {}
+	for _, mutation in ipairs(Config.MUTATIONS) do
+		table.insert(mutations, {
+			key = mutation.key,
+			name = mutation.name,
+			multiplier = mutation.multiplier,
+			weight = mutation.weight,
+			blurb = mutation.blurb,
+		})
+	end
 	return {
 		discovered = discovered,
 		total = total,
 		percent = total > 0 and discovered / total or 0,
 		entries = entries,
+		mutationChance = Config.MUTATION_CHANCE,
+		mutations = mutations,
 	}
 end
 

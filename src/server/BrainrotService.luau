@@ -84,6 +84,17 @@ local function alive(player: Player?): boolean
 	return player ~= nil and player.Parent ~= nil
 end
 
+-- A single creature's income after its one-time mutation roll. The service is
+-- authoritative, with a local fallback so a boot-order problem never zeroes a
+-- banked creature.
+local function recordIncome(record: any): number
+	if deps and deps.MutationService then
+		return deps.MutationService.incomeOf(record)
+	end
+	local multiplier = record.mutation and record.mutation.multiplier or 1
+	return record.rarity.value * multiplier
+end
+
 -- Primitive brush ----------------------------------------------------------
 
 -- pos = { x, y, z, rotX?, rotY?, rotZ? } in studs and degrees.
@@ -728,7 +739,7 @@ end
 
 -- Model assembly -----------------------------------------------------------
 
-local function addNameplate(model: Model, root: BasePart, kind: any, rarity: any)
+local function addNameplate(model: Model, root: BasePart, kind: any, rarity: any): any
 	local billboard = Util.billboard(root, Vector2.new(300, 78), Vector3.new(0, 3.7, 0), 145)
 	local card = Util.frame({
 		Size = UDim2.fromScale(1, 1),
@@ -736,9 +747,9 @@ local function addNameplate(model: Model, root: BasePart, kind: any, rarity: any
 		BackgroundTransparency = 0.18,
 	}, billboard)
 	Util.corner(card, 13)
-	Util.stroke(card, rarity.color, 2.2, 0.05)
+	local stroke = Util.stroke(card, rarity.color, 2.2, 0.05)
 
-	Util.label({
+	local nameLabel = Util.label({
 		Size = UDim2.new(1, -16, 0.5, 0),
 		Position = UDim2.fromOffset(8, 3),
 		Text = kind.name,
@@ -746,7 +757,7 @@ local function addNameplate(model: Model, root: BasePart, kind: any, rarity: any
 		TextColor3 = rarity.color,
 		TextScaled = true,
 	}, card)
-	Util.label({
+	local subLabel = Util.label({
 		Size = UDim2.new(1, -16, 0.36, 0),
 		Position = UDim2.new(0, 8, 0.55, 0),
 		Text = string.upper(rarity.name) .. "   •   $" .. tostring(rarity.value) .. "/SEC",
@@ -779,13 +790,16 @@ local function addNameplate(model: Model, root: BasePart, kind: any, rarity: any
 		Shape = Enum.PartType.Cylinder,
 		Transparency = 0.35,
 	}, model)
+	return { name = nameLabel, sub = subLabel, card = card, stroke = stroke, billboard = billboard }
 end
 
-local function buildCreature(kind: any, rarity: any): (Model, BasePart)
+local function buildCreature(kind: any, rarity: any): (Model, BasePart, any)
 	local model = Instance.new("Model")
 	model.Name = "Brainrot_" .. kind.id
 	model:SetAttribute("BrainrotKind", kind.name)
 	model:SetAttribute("Rarity", kind.rarity)
+	model:SetAttribute("Mutation", "None")
+	model:SetAttribute("MutationMultiplier", 1)
 	model:SetAttribute("CashPerSecond", rarity.value)
 	model:SetAttribute("Quip", kind.quip)
 
@@ -829,9 +843,9 @@ local function buildCreature(kind: any, rarity: any): (Model, BasePart)
 		light.Parent = root
 	end
 
-	addNameplate(model, root, kind, rarity)
 	model.WorldPivot = root.CFrame
-	return model, root
+	local plate = addNameplate(model, root, kind, rarity)
+	return model, root, plate
 end
 
 -- Spawning ----------------------------------------------------------------
@@ -888,7 +902,7 @@ local function refreshAttributes(player: Player)
 	local raw = 0
 	if world.placed[player] then
 		for _, record in ipairs(world.placed[player]) do
-			raw += record.rarity.value
+			raw += recordIncome(record)
 		end
 	end
 	player:SetAttribute("Carried", carrying)
@@ -923,7 +937,7 @@ function BrainrotService.spawnOne(kindOverride: any?, positionOverride: Vector3?
 	if not rarity then
 		return nil
 	end
-	local model, root = buildCreature(kind, rarity)
+	local model, root, plate = buildCreature(kind, rarity)
 	local position = positionOverride or wildSpot()
 	local yaw = math.random() * math.pi * 2
 	model:PivotTo(CFrame.new(position) * CFrame.Angles(0, yaw, 0))
@@ -935,6 +949,9 @@ function BrainrotService.spawnOne(kindOverride: any?, positionOverride: Vector3?
 		rarity = rarity,
 		model = model,
 		root = root,
+		nameplate = plate,
+		mutation = nil,
+		mutationRolled = false,
 		state = "wild",
 		owner = nil,
 		basePos = position,
@@ -1014,6 +1031,22 @@ function BrainrotService.attemptGrab(player: Player, record: any): boolean
 	record.owner = player
 	record.carriedAt = os.clock()
 	record.basePos = nil
+
+	-- The one and only mutation roll. It happens before the toast so the player
+	-- reads the name, colour and new income in the same message.
+	if deps.MutationService then
+		local ok, err = pcall(deps.MutationService.rollForCapture, record)
+		if not ok then
+			warn("[BrainrotService] mutation roll failed: " .. tostring(err))
+		end
+		if record.mutation then
+			local painted, paintErr = pcall(deps.MutationService.apply, record)
+			if not painted then
+				warn("[BrainrotService] mutation paint failed: " .. tostring(paintErr))
+			end
+		end
+	end
+
 	table.insert(list, record)
 	refreshAttributes(player)
 	deps.BaseService.refreshPad(player)
@@ -1021,11 +1054,19 @@ function BrainrotService.attemptGrab(player: Player, record: any): boolean
 	Util.fireClient(deps.Remotes.FX, player, {
 		kind = "grab",
 		position = record.model:GetPivot().Position,
-		color = record.rarity.color,
+		color = record.mutation and record.mutation.color or record.rarity.color,
 	})
-	Util.toast(deps.Remotes, player, string.format("Grabbed %s (%s) • $%d/sec. %s", record.kind.name, record.rarity.name, record.rarity.value, record.kind.quip), "good", Config.TOAST.normal)
+	local mutation = record.mutation
+	local income = record.rarity.value
+	if deps.MutationService then
+		income = deps.MutationService.incomeOf(record)
+	end
+	local tag = mutation and string.format(" [%s x%.2f]", mutation.key, mutation.multiplier) or ""
+	Util.toast(deps.Remotes, player, string.format("Grabbed %s%s (%s) • $%d/sec. %s", record.kind.name, tag, record.rarity.name, income, record.kind.quip), mutation and "legendary" or "good", Config.TOAST.normal)
 
-	if record.rarity.value >= Config.RARITIES.Legendary.value then
+	if mutation then
+		Util.broadcastToast(deps.Remotes, string.format("%s caught a %s %s! %s income.", player.DisplayName, mutation.key, record.kind.name, string.format("x%.2f", mutation.multiplier)), "legendary", Config.TOAST.long)
+	elseif record.rarity.value >= Config.RARITIES.Legendary.value then
 		Util.broadcastToast(deps.Remotes, string.format("%s grabbed a %s %s!", player.DisplayName, record.rarity.name, record.kind.name), "legendary", Config.TOAST.long)
 	end
 	noteCapture(player, record.kind, record.model:GetPivot().Position)
@@ -1184,7 +1225,7 @@ function BrainrotService.getBaseIncome(player: Player): number
 	end
 	local total = 0
 	for _, record in ipairs(list) do
-		total += record.rarity.value
+		total += recordIncome(record)
 	end
 	return total
 end
@@ -1419,7 +1460,7 @@ local function incomeLoop()
 				if alive(player) and #list > 0 then
 					local perSecond = 0
 					for _, record in ipairs(list) do
-						perSecond += record.rarity.value
+						perSecond += recordIncome(record)
 						-- Self-heal a model that drifted off its slot.
 						local drift = record.baseCF and (record.model:GetPivot().Position - record.baseCF.Position).Magnitude or 0
 						if record.model and (record.model.Parent ~= world.folder or drift > Config.SNAP_DISTANCE) then

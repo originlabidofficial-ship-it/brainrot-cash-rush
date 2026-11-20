@@ -62,6 +62,7 @@ local MapService = require(script.Parent:WaitForChild("MapService"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local BaseService = require(script.Parent:WaitForChild("BaseService"))
 local BrainrotService = require(script.Parent:WaitForChild("BrainrotService"))
+local MutationService = require(script.Parent:WaitForChild("MutationService"))
 local WaveService = require(script.Parent:WaitForChild("WaveService"))
 local UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
 local QuestService = require(script.Parent:WaitForChild("QuestService"))
@@ -74,6 +75,7 @@ Services.MapService = MapService
 Services.DataService = DataService
 Services.BaseService = BaseService
 Services.BrainrotService = BrainrotService
+Services.MutationService = MutationService
 Services.WaveService = WaveService
 Services.UpgradeService = UpgradeService
 Services.QuestService = QuestService
@@ -89,6 +91,7 @@ local bootOrder = {
 	{ "DataService", DataService },
 	{ "BaseService", BaseService },
 	{ "BrainrotService", BrainrotService },
+	{ "MutationService", MutationService },
 	{ "WaveService", WaveService },
 	{ "UpgradeService", UpgradeService },
 	{ "QuestService", QuestService },

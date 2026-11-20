@@ -445,15 +445,27 @@ local indexPanel = makePanel("index", "BRAINROT INDEX", "Every species you have 
 local indexProgress = text({
 	Size = UDim2.new(1, -24, 0, 20),
 	Position = UDim2.fromOffset(12, 62),
-	Text = "0 / 22 discovered",
+	Text = "0 / 30 discovered",
 	Font = Enum.Font.GothamBold,
 	TextColor3 = UI.cyan,
 	TextSize = 15,
 }, indexPanel)
 
+local indexMutations = text({
+	Size = UDim2.new(1, -24, 0, 38),
+	Position = UDim2.fromOffset(12, 83),
+	Text = "MUTATIONS: 8% capture roll",
+	Font = Enum.Font.Gotham,
+	TextColor3 = UI.gold,
+	TextSize = 11,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top,
+}, indexPanel)
+
 local indexScroll = Instance.new("ScrollingFrame")
-indexScroll.Size = UDim2.new(1, -24, 1, -96)
-indexScroll.Position = UDim2.fromOffset(12, 86)
+indexScroll.Size = UDim2.new(1, -24, 1, -140)
+indexScroll.Position = UDim2.fromOffset(12, 126)
 indexScroll.BackgroundTransparency = 1
 indexScroll.BorderSizePixel = 0
 indexScroll.ScrollBarThickness = 6
@@ -518,7 +530,7 @@ local function ensureIndexCards(entries: { any })
 	end
 end
 
-local function refreshIndex(entries: { any }, discovered: number, total: number)
+local function refreshIndex(entries: { any }, discovered: number, total: number, index: any)
 	ensureIndexCards(entries)
 	for position, entry in ipairs(entries) do
 		local card = indexCards[position]
@@ -535,6 +547,20 @@ local function refreshIndex(entries: { any }, discovered: number, total: number)
 		end
 	end
 	indexProgress.Text = string.format("%d / %d discovered  •  %d%%", discovered, total, math.floor((total > 0 and discovered / total or 0) * 100))
+
+	if index and type(index.mutations) == "table" then
+		local totalWeight = 0
+		for _, mutation in ipairs(index.mutations) do
+			totalWeight += tonumber(mutation.weight) or 0
+		end
+		local parts = {}
+		for _, mutation in ipairs(index.mutations) do
+			local share = totalWeight > 0 and (tonumber(mutation.weight) or 0) / totalWeight or 0
+			local overall = (tonumber(index.mutationChance) or 0) * share * 100
+			table.insert(parts, string.format("%s x%.2f (%.1f%%)", mutation.key, mutation.multiplier, overall))
+		end
+		indexMutations.Text = string.format("%.0f%% capture roll  •  %s", (tonumber(index.mutationChance) or 0) * 100, table.concat(parts, "   •   "))
+	end
 end
 
 -- Shop panel ---------------------------------------------------------------
@@ -767,7 +793,7 @@ local function applyState(payload: any)
 	slotLabel.Text = string.format("Base %d/%d", payload.placed or 0, payload.padSlots or Config.MAX_BASE)
 
 	if payload.index then
-		refreshIndex(payload.index.entries or {}, payload.index.discovered or 0, payload.index.total or 0)
+		refreshIndex(payload.index.entries or {}, payload.index.discovered or 0, payload.index.total or 0, payload.index)
 	end
 	if payload.upgrades then
 		buildShopRows(payload.upgrades)

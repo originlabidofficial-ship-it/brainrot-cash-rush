@@ -95,6 +95,19 @@ Config.RARITIES = {
 	Mythic = { name = "Mythic", value = 90, color = rgb(255, 85, 175), glow = rgb(255, 20, 140), weight = 3 },
 }
 
+-- Mutations ---------------------------------------------------------------
+-- Rolled exactly once, on the server, when a wild creature is captured. The
+-- chance is per capture; weights split that chance between the four variants.
+-- A mutation multiplies the creature's banked income for as long as it lives.
+Config.MUTATION_CHANCE = 0.08
+
+Config.MUTATIONS = {
+	{ key = "GOLDEN", name = "Golden", multiplier = 2, weight = 25, color = rgb(255, 208, 70), blurb = "A legendary shine. Double income." },
+	{ key = "FROZEN", name = "Frozen", multiplier = 1.6, weight = 30, color = rgb(120, 220, 255), blurb = "Ice-cold cash flow. 1.6x income." },
+	{ key = "NEON", name = "Neon", multiplier = 1.4, weight = 30, color = rgb(95, 255, 155), blurb = "Loud, bright, 1.4x income." },
+	{ key = "LUCKY", name = "Lucky", multiplier = 1.25, weight = 15, color = rgb(255, 125, 220), blurb = "Small edge, big vibes. 1.25x income." },
+}
+
 -- The cast. Written compactly as {id, name, rarity, shape, body, accent, quip}
 -- and expanded below into the table every service reads, so adding a creature
 -- is a single row here plus one shape recipe in BrainrotService.
